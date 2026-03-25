@@ -1,0 +1,49 @@
+{
+  "entities": {
+    "Task": {
+      "title": "Task",
+      "description": "A gardening task for a specific plant or general care.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the task."
+        },
+        "text": {
+          "type": "string",
+          "description": "The description of the task."
+        },
+        "completed": {
+          "type": "boolean",
+          "description": "Whether the task is completed."
+        },
+        "dueDate": {
+          "type": "string",
+          "format": "date",
+          "description": "The due date of the task in YYYY-MM-DD format."
+        },
+        "frequency": {
+          "type": "string",
+          "enum": ["none", "daily", "weekly", "biweekly", "monthly"],
+          "description": "How often the task repeats."
+        },
+        "plantName": {
+          "type": "string",
+          "description": "The name of the plant associated with the task."
+        },
+        "lastNotified": {
+          "type": "string",
+          "format": "date",
+          "description": "The last date a notification was sent for this task."
+        }
+      },
+      "required": ["id", "text", "completed"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}/tasks/{taskId}": {
+      "schema": "Task",
+      "description": "User-specific gardening tasks."
+    }
+  }
+}

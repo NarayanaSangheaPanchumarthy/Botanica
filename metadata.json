@@ -3,6 +3,7 @@
   "description": "Identify plants from photos and get detailed care instructions with an AI gardening assistant.",
   "requestFramePermissions": [
     "microphone",
-    "geolocation"
+    "geolocation",
+    "camera"
   ]
 }

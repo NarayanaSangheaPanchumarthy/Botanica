@@ -6,6 +6,7 @@ interface LandingPageProps {
   onOpenTasks: () => void;
   onOpenDiseaseGuide: () => void;
   onOpenPestGuide: () => void;
+  onOpenScanReport: () => void;
 }
 
 const FAQS = [
@@ -48,7 +49,7 @@ const SHOWCASE_PLANTS = [
   }
 ];
 
-export default function LandingPage({ onStartChat, onOpenTasks, onOpenDiseaseGuide, onOpenPestGuide }: LandingPageProps) {
+export default function LandingPage({ onStartChat, onOpenTasks, onOpenDiseaseGuide, onOpenPestGuide, onOpenScanReport }: LandingPageProps) {
   const [openFaq, setOpenFaq] = useState<number | null>(null);
 
   const handleShare = async (platform: string) => {
@@ -96,6 +97,13 @@ export default function LandingPage({ onStartChat, onOpenTasks, onOpenDiseaseGui
             <h1 className="text-xl font-semibold tracking-tight">Botanica</h1>
           </div>
           <div className="flex items-center gap-2">
+            <button
+              onClick={onOpenScanReport}
+              className="hidden sm:flex items-center gap-2 text-sm font-medium text-green-100 hover:text-white px-4 py-2 rounded-full border border-green-700 hover:bg-green-800 transition-colors"
+            >
+              <Scan className="w-4 h-4" />
+              AI Scan
+            </button>
             <button
               onClick={onOpenTasks}
               className="flex items-center gap-2 text-sm font-medium text-green-800 bg-green-100 hover:bg-white px-3 py-2 rounded-full transition-colors shadow-sm"

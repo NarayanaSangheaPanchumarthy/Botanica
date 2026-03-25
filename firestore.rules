@@ -1,0 +1,73 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users/{userId}/tasks
+    // Document ID: taskId (string)
+    // Fields:
+    //   - id: string (required) - Unique identifier
+    //   - text: string (required, max 200 chars) - Task description
+    //   - completed: boolean (required) - Completion status
+    //   - dueDate: string (optional, YYYY-MM-DD) - Due date
+    //   - frequency: string (optional, enum) - Repeat frequency
+    //   - plantName: string (optional, max 100 chars) - Associated plant
+    //   - lastNotified: string (optional, YYYY-MM-DD) - Last notification date
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    function isValidTask(data) {
+      return hasRequiredFields(['id', 'text', 'completed']) &&
+             hasOnlyAllowedFields(['id', 'text', 'completed', 'dueDate', 'frequency', 'plantName', 'lastNotified']) &&
+             data.id is string && data.id.size() > 0 && data.id.size() < 100 &&
+             data.text is string && data.text.size() > 0 && data.text.size() < 200 &&
+             data.completed is bool &&
+             (!('dueDate' in data) || (data.dueDate is string && data.dueDate.matches('^\\d{4}-\\d{2}-\\d{2}$'))) &&
+             (!('frequency' in data) || (data.frequency in ['none', 'daily', 'weekly', 'biweekly', 'monthly'])) &&
+             (!('plantName' in data) || (data.plantName is string && data.plantName.size() < 100)) &&
+             (!('lastNotified' in data) || (data.lastNotified is string && data.lastNotified.matches('^\\d{4}-\\d{2}-\\d{2}$')));
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read, write: if isOwner(userId);
+      
+      match /tasks/{taskId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidTask(request.resource.data);
+        allow update: if isOwner(userId) && isValidTask(request.resource.data);
+        allow delete: if isOwner(userId);
+      }
+    }
+    
+    // Default deny
+    match /{path=**} {
+      allow read, write: if false;
+    }
+  }
+}

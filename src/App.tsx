@@ -5,7 +5,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { GoogleGenAI, Content, Part, GenerateContentResponse, ThinkingLevel } from '@google/genai';
-import { Send, Image as ImageIcon, X, Leaf, Sprout, Loader2, Mic, MicOff, Bug, MapPin, Scan, ArrowLeft, Activity, ArrowRight, ListTodo, CheckSquare, Square, Trash2, Plus, Calendar, Repeat, AlertCircle, Sun, Cloud, CloudRain, CloudSnow, CloudLightning, CloudFog, Droplets, Thermometer, Bell, BellOff, BellRing, LogIn, LogOut, Lock } from 'lucide-react';
+import { Send, Image as ImageIcon, X, Leaf, Sprout, Loader2, Mic, MicOff, Bug, MapPin, Scan, ArrowLeft, Activity, ArrowRight, ListTodo, CheckSquare, Square, Trash2, Plus, Calendar, Repeat, AlertCircle, Sun, Cloud, CloudRain, CloudSnow, CloudLightning, CloudFog, Droplets, Thermometer, Bell, BellOff, BellRing, LogIn, LogOut, Lock, Brain, Sparkles, MessageSquare } from 'lucide-react';
 import LandingPage from './LandingPage';
 import { auth, db, googleProvider } from './firebase';
 import { signInWithPopup, signOut, onAuthStateChanged, User } from 'firebase/auth';
@@ -163,7 +163,61 @@ type WeatherData = {
   code: number;
 };
 
+class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean; error: Error | null }> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.error("ErrorBoundary caught an error:", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen bg-stone-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl p-8 max-w-md w-full shadow-xl border border-stone-200 text-center">
+            <div className="bg-red-100 p-3 rounded-full w-fit mx-auto mb-4">
+              <AlertCircle className="w-8 h-8 text-red-600" />
+            </div>
+            <h2 className="text-2xl font-bold text-stone-800 mb-2">Something went wrong</h2>
+            <p className="text-stone-600 mb-6">
+              We encountered an unexpected error. Please try refreshing the page.
+            </p>
+            <button
+              onClick={() => window.location.reload()}
+              className="w-full bg-green-600 text-white font-semibold py-3 rounded-xl hover:bg-green-700 transition-colors shadow-md"
+            >
+              Refresh Page
+            </button>
+            {process.env.NODE_ENV === 'development' && this.state.error && (
+              <div className="mt-6 p-4 bg-stone-100 rounded-lg text-left overflow-auto max-h-40">
+                <p className="text-xs font-mono text-red-600">{this.state.error.toString()}</p>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
 export default function App() {
+  return (
+    <ErrorBoundary>
+      <AppContent />
+    </ErrorBoundary>
+  );
+}
+
+function AppContent() {
   const [user, setUser] = useState<User | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
@@ -182,6 +236,13 @@ export default function App() {
   const [showPestGuide, setShowPestGuide] = useState(false);
   const [showDiseaseGuide, setShowDiseaseGuide] = useState(false);
   const [showTasks, setShowTasks] = useState(false);
+  const [showAIReport, setShowAIReport] = useState(false);
+  const [showScanReport, setShowScanReport] = useState(false);
+  const [aiReport, setAiReport] = useState<string | null>(null);
+  const [scanReport, setScanReport] = useState<string | null>(null);
+  const [isGeneratingReport, setIsGeneratingReport] = useState(false);
+  const [isGeneratingScanReport, setIsGeneratingScanReport] = useState(false);
+  const [scanImage, setScanImage] = useState<string | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [newTaskText, setNewTaskText] = useState('');
   const [newTaskPlant, setNewTaskPlant] = useState('');
@@ -337,6 +398,8 @@ export default function App() {
   };
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const scanFileInputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const recognitionRef = useRef<any>(null);
   const inputRef = useRef(input);
 
@@ -440,6 +503,18 @@ export default function App() {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  const handleScanImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const base64String = reader.result as string;
+        generateScanReport(base64String);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
 
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -548,6 +623,144 @@ export default function App() {
     }
   };
 
+  const generateScanReport = async (imageData: string) => {
+    setIsGeneratingScanReport(true);
+    setScanReport(null);
+    setScanImage(imageData);
+    setShowScanReport(true);
+
+    try {
+      const prompt = `As Botanica, the AI Master Gardener, analyze this image (which could be a plant, a pest, a disease, or a document like a seed packet or care guide) and provide a comprehensive "Scan Report".
+
+Please provide:
+1. **Identification**: What is in the image? (Plant name, pest type, disease name, or document type).
+2. **Key Details**: Important facts or information extracted from the image.
+3. **Health/Status Assessment**: If it's a plant, how does it look? If it's a document, what are the key instructions?
+4. **Actionable Advice**: 3-5 specific steps the user should take based on this scan.
+5. **Expert Tip**: A unique, professional gardening tip related to this specific item.
+
+Keep the tone professional, encouraging, and expert. Use markdown for formatting.`;
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.1-pro-preview',
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              { text: prompt },
+              {
+                inlineData: {
+                  mimeType: 'image/jpeg',
+                  data: imageData.split(',')[1],
+                },
+              },
+            ],
+          },
+        ],
+        config: {
+          thinkingConfig: { thinkingLevel: ThinkingLevel.HIGH },
+        }
+      });
+
+      setScanReport(response.text || 'Unable to generate scan report at this time.');
+    } catch (error) {
+      console.error('Error generating scan report:', error);
+      setScanReport('Sorry, I encountered an error while analyzing your image. Please try again.');
+    } finally {
+      setIsGeneratingScanReport(false);
+    }
+  };
+
+  const generateAIReport = async () => {
+    setIsGeneratingReport(true);
+    setShowAIReport(true);
+    setAiReport(null);
+
+    try {
+      const taskList = tasks.map(t => `- ${t.text} (${t.plantName || 'General'})${t.dueDate ? ` due ${t.dueDate}` : ''}${t.completed ? ' [COMPLETED]' : ''}`).join('\n');
+      
+      const prompt = `As Botanica, the AI Master Gardener, provide a comprehensive "Garden Health Report" based on the following data:
+
+CURRENT WEATHER:
+${weather ? `${weather.temperature}°C, ${weather.humidity}% humidity, ${weather.precipitation}mm precipitation` : 'Weather data unavailable'}
+
+CURRENT TASKS:
+${taskList || 'No tasks currently scheduled.'}
+
+Please provide:
+1. **Smart Summary**: A brief overview of the current garden state.
+2. **Weather Impact**: How the current weather affects the plants and tasks.
+3. **Priority Actions**: Which tasks should be prioritized and why.
+4. **Proactive Advice**: 2-3 expert tips based on the season and weather to prevent future issues.
+5. **Plant Spotlight**: Pick one plant from the tasks and give a quick "Expert Fact" about it.
+
+Keep the tone professional, encouraging, and expert. Use markdown for formatting.`;
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.1-pro-preview',
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        config: {
+          thinkingConfig: { thinkingLevel: ThinkingLevel.HIGH },
+        }
+      });
+
+      setAiReport(response.text || 'Unable to generate report at this time.');
+    } catch (error) {
+      console.error('Error generating AI report:', error);
+      setAiReport('Sorry, I encountered an error while generating your garden report. Please try again.');
+    } finally {
+      setIsGeneratingReport(false);
+    }
+  };
+
+  const suggestTasks = async (messageText: string) => {
+    setIsLoading(true);
+    try {
+      const prompt = `Based on the following plant care advice, suggest 3-5 specific, actionable gardening tasks. 
+Format the output as a JSON array of objects, where each object has "text" (the task description), "plantName" (the plant it's for), and "frequency" (one of: 'none', 'daily', 'weekly', 'biweekly', 'monthly').
+
+ADVICE:
+${messageText}
+
+JSON OUTPUT:`;
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        config: {
+          responseMimeType: 'application/json',
+        }
+      });
+
+      const suggestedTasks = JSON.parse(response.text || '[]');
+      
+      for (const taskData of suggestedTasks) {
+        const newTask: Task = {
+          id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+          text: taskData.text,
+          plantName: taskData.plantName,
+          frequency: taskData.frequency || 'none',
+          completed: false,
+          dueDate: new Date().toISOString().split('T')[0],
+        };
+
+        if (user) {
+          await setDoc(doc(db, 'users', user.uid, 'tasks', newTask.id), newTask);
+        } else {
+          setTasks(prev => [...prev, newTask]);
+        }
+      }
+
+      toast.success(`Added ${suggestedTasks.length} AI-suggested tasks to your list!`);
+      setShowTasks(true);
+    } catch (error) {
+      console.error('Error suggesting tasks:', error);
+      toast.error('Failed to generate AI tasks. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const removeImage = () => {
     setSelectedImage(null);
   };
@@ -625,11 +838,13 @@ export default function App() {
     }
   };
 
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!input.trim() && !selectedImage) return;
+  const handleSubmit = async (e?: React.FormEvent, overrideText?: string, overrideImage?: string) => {
+    if (e) e.preventDefault();
+    
+    const finalInput = (overrideText || input).trim();
+    const finalImage = overrideImage || selectedImage;
+    
+    if (!finalInput && !finalImage) return;
 
     if (isRecording) {
       recognitionRef.current?.stop();
@@ -640,16 +855,16 @@ export default function App() {
     const newUserMessage: Message = {
       id: userMessageId,
       role: 'user',
-      text: input.trim(),
-      image: selectedImage || undefined,
+      text: finalInput,
+      image: finalImage || undefined,
     };
 
     setMessages((prev) => [...prev, newUserMessage]);
-    setInput('');
+    if (!overrideText) setInput('');
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
     }
-    setSelectedImage(null);
+    if (!overrideImage) setSelectedImage(null);
     setIsLoading(true);
 
     const modelMessageId = (Date.now() + 1).toString();
@@ -764,6 +979,7 @@ export default function App() {
       onOpenTasks={() => { setIsChatOpen(true); setShowTasks(true); }}
       onOpenDiseaseGuide={() => { setIsChatOpen(true); setShowDiseaseGuide(true); }}
       onOpenPestGuide={() => { setIsChatOpen(true); setShowPestGuide(true); }}
+      onOpenScanReport={() => { setIsChatOpen(true); scanFileInputRef.current?.click(); }}
     />;
   }
 
@@ -798,6 +1014,28 @@ export default function App() {
           </div>
         </div>
         <div className="flex gap-2">
+          <input
+            type="file"
+            accept="image/*"
+            className="hidden"
+            ref={scanFileInputRef}
+            onChange={handleScanImageSelect}
+          />
+          <button
+            onClick={() => scanFileInputRef.current?.click()}
+            className="flex items-center gap-2 text-sm font-medium text-green-800 bg-green-100 hover:bg-white px-3 py-2 rounded-full transition-colors shadow-sm"
+            title="Scan a picture or document for a detailed report"
+          >
+            <Scan className="w-4 h-4 text-green-600" />
+            <span className="hidden sm:inline">AI Scan Report</span>
+          </button>
+          <button
+            onClick={generateAIReport}
+            className="flex items-center gap-2 text-sm font-medium text-green-800 bg-green-100 hover:bg-white px-3 py-2 rounded-full transition-colors shadow-sm"
+          >
+            <Sparkles className="w-4 h-4 text-green-600" />
+            <span className="hidden sm:inline">AI Report</span>
+          </button>
           <button
             onClick={() => setShowTasks(true)}
             className="flex items-center gap-2 text-sm font-medium text-green-800 bg-green-100 hover:bg-white px-3 py-2 rounded-full transition-colors shadow-sm"
@@ -819,6 +1057,25 @@ export default function App() {
             <Bug className="w-4 h-4" />
             <span className="hidden sm:inline">Pest Guide</span>
           </button>
+          <div className="w-px h-6 bg-green-700/50 mx-1 hidden sm:block" />
+          {user ? (
+            <button
+              onClick={() => signOut(auth)}
+              className="flex items-center gap-2 text-sm font-medium text-green-100 hover:text-white px-3 py-2 rounded-full transition-colors"
+              title={`Logged in as ${user.email}`}
+            >
+              <LogOut className="w-4 h-4" />
+              <span className="hidden sm:inline">Logout</span>
+            </button>
+          ) : (
+            <button
+              onClick={() => signInWithPopup(auth, googleProvider)}
+              className="flex items-center gap-2 text-sm font-medium text-green-100 hover:text-white px-3 py-2 rounded-full transition-colors"
+            >
+              <LogIn className="w-4 h-4" />
+              <span className="hidden sm:inline">Login</span>
+            </button>
+          )}
         </div>
       </header>
 
@@ -890,6 +1147,18 @@ export default function App() {
                     </div>
                   ) : null}
                 </div>
+
+                {msg.role === 'model' && !msg.isStreaming && msg.text && (
+                  <div className="mt-4 flex justify-end">
+                    <button
+                      onClick={() => suggestTasks(msg.text)}
+                      className="flex items-center gap-1.5 text-xs font-bold text-green-700 bg-green-50 hover:bg-green-100 px-3 py-1.5 rounded-full transition-all border border-green-100"
+                    >
+                      <Sparkles className="w-3.5 h-3.5" />
+                      Add AI Care Tasks
+                    </button>
+                  </div>
+                )}
                 
                 {msg.groundingUrls && msg.groundingUrls.length > 0 && (
                   <div className="mt-4 pt-4 border-t border-stone-200/50">
@@ -1012,10 +1281,24 @@ export default function App() {
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl w-full max-w-2xl max-h-[85vh] overflow-hidden flex flex-col shadow-2xl animate-in fade-in zoom-in-95 duration-200">
             <div className="p-4 border-b border-stone-200 flex justify-between items-center bg-green-50">
-              <h2 className="text-lg font-semibold text-green-800 flex items-center gap-2">
-                <Bug className="w-5 h-5" />
-                Common Garden Pests Guide
-              </h2>
+              <div className="flex items-center gap-3">
+                <h2 className="text-lg font-semibold text-green-800 flex items-center gap-2">
+                  <Bug className="w-5 h-5" />
+                  Common Garden Pests Guide
+                </h2>
+                <button
+                  onClick={() => {
+                    setShowPestGuide(false);
+                    setIsChatOpen(true);
+                    setInput("I need help identifying a pest on my plant. Can you help me?");
+                    fileInputRef.current?.click();
+                  }}
+                  className="flex items-center gap-1.5 text-xs font-bold bg-green-600 text-white px-3 py-1.5 rounded-full hover:bg-green-500 transition-all shadow-sm"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  AI Identification
+                </button>
+              </div>
               <button 
                 onClick={() => setShowPestGuide(false)} 
                 className="p-1.5 hover:bg-green-200/50 rounded-full text-green-800 transition-colors"
@@ -1049,15 +1332,176 @@ export default function App() {
         </div>
       )}
 
+      {/* AI Garden Report Modal */}
+      {showAIReport && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-2xl max-h-[85vh] overflow-hidden flex flex-col shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+            <div className="p-4 border-b border-stone-200 flex justify-between items-center bg-green-50">
+              <h2 className="text-lg font-semibold text-green-800 flex items-center gap-2">
+                <Sparkles className="w-5 h-5 text-green-600" />
+                AI Garden Health Report
+              </h2>
+              <button 
+                onClick={() => setShowAIReport(false)} 
+                className="p-1.5 hover:bg-green-200/50 rounded-full text-green-800 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-6 overflow-y-auto flex-1">
+              {isGeneratingReport ? (
+                <div className="flex flex-col items-center justify-center py-12 space-y-4">
+                  <div className="relative">
+                    <div className="w-16 h-16 border-4 border-green-100 border-t-green-600 rounded-full animate-spin"></div>
+                    <Sparkles className="w-6 h-6 text-green-600 absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 animate-pulse" />
+                  </div>
+                  <div className="text-center">
+                    <p className="text-stone-800 font-medium">Analyzing your garden data...</p>
+                    <p className="text-stone-500 text-sm">Consulting with master gardener AI</p>
+                  </div>
+                </div>
+              ) : aiReport ? (
+                <div className="prose prose-stone max-w-none">
+                  <div className="bg-green-50/50 border border-green-100 rounded-2xl p-6 mb-6">
+                    <div className="flex items-center gap-2 mb-4 text-green-800">
+                      <Brain className="w-5 h-5" />
+                      <span className="font-bold uppercase tracking-wider text-xs">Botanica Intelligence Summary</span>
+                    </div>
+                    <div className="markdown-body">
+                      <ReactMarkdown>{aiReport}</ReactMarkdown>
+                    </div>
+                  </div>
+                  <div className="flex justify-center mt-4">
+                    <button
+                      onClick={generateAIReport}
+                      className="text-sm font-medium text-green-700 hover:text-green-800 flex items-center gap-1.5 px-4 py-2 rounded-full hover:bg-green-50 transition-colors"
+                    >
+                      <Repeat className="w-4 h-4" />
+                      Regenerate Report
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center py-12">
+                  <p className="text-stone-500">No report generated yet.</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* AI Scan Report Modal */}
+      {showScanReport && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-3xl max-h-[85vh] overflow-hidden flex flex-col shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+            <div className="p-4 border-b border-stone-200 flex justify-between items-center bg-green-50">
+              <h2 className="text-lg font-semibold text-green-800 flex items-center gap-2">
+                <Scan className="w-5 h-5 text-green-600" />
+                AI Scan Report
+              </h2>
+              <button 
+                onClick={() => setShowScanReport(false)} 
+                className="p-1.5 hover:bg-green-200/50 rounded-full text-green-800 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-6 overflow-y-auto flex-1">
+              {isGeneratingScanReport ? (
+                <div className="flex flex-col items-center justify-center py-12 space-y-4">
+                  <div className="relative">
+                    <div className="w-16 h-16 border-4 border-green-100 border-t-green-600 rounded-full animate-spin"></div>
+                    <Scan className="w-6 h-6 text-green-600 absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 animate-pulse" />
+                  </div>
+                  <div className="text-center">
+                    <p className="text-stone-800 font-medium">Analyzing your scan...</p>
+                    <p className="text-stone-500 text-sm">Extracting expert insights from image</p>
+                  </div>
+                </div>
+              ) : scanReport ? (
+                <div className="space-y-6">
+                  {scanImage && (
+                    <div className="flex justify-center">
+                      <img 
+                        src={scanImage} 
+                        alt="Scanned item" 
+                        className="max-h-64 rounded-xl shadow-md border-4 border-white" 
+                        referrerPolicy="no-referrer"
+                      />
+                    </div>
+                  )}
+                  <div className="prose prose-stone max-w-none">
+                    <div className="bg-green-50/50 border border-green-100 rounded-2xl p-6">
+                      <div className="flex items-center gap-2 mb-4 text-green-800">
+                        <Brain className="w-5 h-5" />
+                        <span className="font-bold uppercase tracking-wider text-xs">Botanica Scan Analysis</span>
+                      </div>
+                      <div className="markdown-body">
+                        <ReactMarkdown>{scanReport}</ReactMarkdown>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex justify-center gap-4">
+                    <button
+                      onClick={() => scanFileInputRef.current?.click()}
+                      className="text-sm font-medium text-green-700 hover:text-green-800 flex items-center gap-1.5 px-4 py-2 rounded-full hover:bg-green-50 transition-colors"
+                    >
+                      <Repeat className="w-4 h-4" />
+                      Scan New Item
+                    </button>
+                    <button
+                      onClick={() => {
+                        setShowScanReport(false);
+                        setIsChatOpen(true);
+                        handleSubmit(undefined, "Tell me more about this scan.", scanImage || undefined);
+                      }}
+                      className="text-sm font-medium text-white bg-green-600 hover:bg-green-700 flex items-center gap-1.5 px-4 py-2 rounded-full transition-colors shadow-sm"
+                    >
+                      <MessageSquare className="w-4 h-4" />
+                      Ask Follow-up
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center py-12">
+                  <p className="text-stone-500">No scan report generated yet.</p>
+                  <button
+                    onClick={() => scanFileInputRef.current?.click()}
+                    className="mt-4 bg-green-600 text-white px-6 py-2 rounded-full hover:bg-green-700 transition-colors"
+                  >
+                    Upload Image to Scan
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Disease Guide Modal */}
       {showDiseaseGuide && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl w-full max-w-3xl max-h-[85vh] overflow-hidden flex flex-col shadow-2xl animate-in fade-in zoom-in-95 duration-200">
             <div className="p-4 border-b border-stone-200 flex justify-between items-center bg-green-50">
-              <h2 className="text-lg font-semibold text-green-800 flex items-center gap-2">
-                <Activity className="w-5 h-5" />
-                Plant Disease Progression Guide
-              </h2>
+              <div className="flex items-center gap-3">
+                <h2 className="text-lg font-semibold text-green-800 flex items-center gap-2">
+                  <Activity className="w-5 h-5" />
+                  Plant Disease Progression Guide
+                </h2>
+                <button
+                  onClick={() => {
+                    setShowDiseaseGuide(false);
+                    setIsChatOpen(true);
+                    setInput("I need help diagnosing a plant disease. Can you help me?");
+                    fileInputRef.current?.click();
+                  }}
+                  className="flex items-center gap-1.5 text-xs font-bold bg-green-600 text-white px-3 py-1.5 rounded-full hover:bg-green-500 transition-all shadow-sm"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  AI Diagnosis
+                </button>
+              </div>
               <button 
                 onClick={() => setShowDiseaseGuide(false)} 
                 className="p-1.5 hover:bg-green-200/50 rounded-full text-green-800 transition-colors"
