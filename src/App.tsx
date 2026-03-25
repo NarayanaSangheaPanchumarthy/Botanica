@@ -1,563 +1,210 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
-import React, { useState, useRef, useEffect } from 'react';
-import { GoogleGenAI, Content, Part, GenerateContentResponse, ThinkingLevel } from '@google/genai';
-import { Send, Image as ImageIcon, X, Leaf, Sprout, Loader2, Mic, MicOff, Bug, MapPin, Scan, ArrowLeft, Activity, ArrowRight, ListTodo, CheckSquare, Square, Trash2, Plus, Calendar, Repeat, AlertCircle, Sun, Cloud, CloudRain, CloudSnow, CloudLightning, CloudFog, Droplets, Thermometer, Bell, BellOff, BellRing, LogIn, LogOut, Lock, Brain, Sparkles, MessageSquare } from 'lucide-react';
-import LandingPage from './LandingPage';
-import { auth, db, googleProvider } from './firebase';
-import { signInWithPopup, signOut, onAuthStateChanged, User } from 'firebase/auth';
-import { collection, doc, onSnapshot, setDoc, deleteDoc } from 'firebase/firestore';
+import React, { useState, useEffect, useRef } from 'react';
+import { 
+  Sprout, 
+  Leaf, 
+  Calendar, 
+  CheckSquare, 
+  Square, 
+  Plus, 
+  Trash2, 
+  AlertCircle, 
+  Tag, 
+  Bell, 
+  BellRing, 
+  BellOff, 
+  X, 
+  ListTodo, 
+  Sparkles, 
+  Activity, 
+  Bug, 
+  ArrowLeft, 
+  Mic, 
+  MicOff, 
+  Image as ImageIcon, 
+  Send, 
+  Scan, 
+} from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 import { Toaster, toast } from 'sonner';
+import Markdown from 'react-markdown';
+import { GoogleGenAI } from "@google/genai";
+import { onAuthStateChanged, User } from 'firebase/auth';
+import { collection, addDoc, deleteDoc, doc, onSnapshot, query, orderBy, setDoc } from 'firebase/firestore';
+import { db, auth } from './firebase';
+import LandingPage from './LandingPage';
 
-enum OperationType {
-  CREATE = 'create',
-  UPDATE = 'update',
-  DELETE = 'delete',
-  LIST = 'list',
-  GET = 'get',
-  WRITE = 'write',
-}
-
-interface FirestoreErrorInfo {
-  error: string;
-  operationType: OperationType;
-  path: string | null;
-  authInfo: {
-    userId: string | undefined;
-    email: string | null | undefined;
-    emailVerified: boolean | undefined;
-    isAnonymous: boolean | undefined;
-    tenantId: string | null | undefined;
-    providerInfo: {
-      providerId: string;
-      displayName: string | null;
-      email: string | null;
-      photoUrl: string | null;
-    }[];
-  }
-}
-
-function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
-  const errInfo: FirestoreErrorInfo = {
-    error: error instanceof Error ? error.message : String(error),
-    authInfo: {
-      userId: auth.currentUser?.uid,
-      email: auth.currentUser?.email,
-      emailVerified: auth.currentUser?.emailVerified,
-      isAnonymous: auth.currentUser?.isAnonymous,
-      tenantId: auth.currentUser?.tenantId,
-      providerInfo: auth.currentUser?.providerData.map(provider => ({
-        providerId: provider.providerId,
-        displayName: provider.displayName,
-        email: provider.email,
-        photoUrl: provider.photoURL
-      })) || []
-    },
-    operationType,
-    path
-  }
-  console.error('Firestore Error: ', JSON.stringify(errInfo));
-  throw new Error(JSON.stringify(errInfo));
-}
-
-const PEST_GUIDE = [
-  {
-    name: "Aphids",
-    image: "https://picsum.photos/seed/aphids/300/200",
-    identification: "Tiny, pear-shaped insects often found in clusters on new growth or the undersides of leaves. They can be green, black, brown, or pink. They leave behind sticky honeydew.",
-    treatment: "Spray with a strong stream of water to dislodge them. Apply insecticidal soap or neem oil. Introduce beneficial insects like ladybugs or lacewings."
-  },
-  {
-    name: "Spider Mites",
-    image: "https://picsum.photos/seed/spidermite/300/200",
-    identification: "Microscopic arachnids that look like tiny moving dots. Signs include fine webbing on the plant, and stippling (tiny yellow or white dots) on leaves.",
-    treatment: "Wipe leaves with a damp cloth. Increase humidity around the plant. Spray thoroughly with neem oil or horticultural oil, ensuring you hit the undersides of leaves."
-  },
-  {
-    name: "Mealybugs",
-    image: "https://picsum.photos/seed/mealybug/300/200",
-    identification: "Small, soft-bodied insects covered in a white, cottony or waxy substance. Often found in the joints of stems or along leaf veins.",
-    treatment: "Dab individual bugs with a cotton swab dipped in rubbing alcohol. For larger infestations, use insecticidal soap or neem oil sprays."
-  },
-  {
-    name: "Fungus Gnats",
-    image: "https://picsum.photos/seed/fungusgnat/300/200",
-    identification: "Small, dark, fruit-fly-like insects flying around the soil surface. Larvae live in the soil and can damage roots.",
-    treatment: "Allow the top 1-2 inches of soil to dry out completely between waterings. Use yellow sticky traps for adults. Apply Mosquito Dunks (BTI) to watering can to kill larvae."
-  },
-  {
-    name: "Whiteflies",
-    image: "https://picsum.photos/seed/whitefly/300/200",
-    identification: "Tiny, moth-like white insects that fly up in a cloud when the plant is disturbed. They congregate on the undersides of leaves.",
-    treatment: "Use yellow sticky traps. Vacuum them carefully from the plant. Apply insecticidal soap or neem oil every few days to break their life cycle."
-  }
-];
-
-const DISEASE_GUIDE = [
-  {
-    name: "Powdery Mildew",
-    image: "https://picsum.photos/seed/powderymildew/300/200",
-    progression: [
-      { stage: "Early", description: "Small white powdery spots appear on leaves." },
-      { stage: "Mid", description: "Spots merge, covering entire leaves; leaves turn yellow." },
-      { stage: "Late", description: "Leaves drop prematurely, plant growth is severely stunted." }
-    ],
-    prevention: "Ensure good air circulation, avoid overhead watering, and plant resistant varieties.",
-    treatment: "Apply neem oil or a baking soda and water solution. Remove heavily infected leaves."
-  },
-  {
-    name: "Root Rot",
-    image: "https://picsum.photos/seed/rootrot/300/200",
-    progression: [
-      { stage: "Early", description: "Slow growth, slight yellowing of lower leaves." },
-      { stage: "Mid", description: "Wilting even when soil is wet; roots become mushy and brown." },
-      { stage: "Late", description: "Complete plant collapse and death." }
-    ],
-    prevention: "Use well-draining soil, allow topsoil to dry between waterings, ensure pots have drainage holes.",
-    treatment: "Remove plant from soil, trim away mushy roots, repot in fresh, sterile, well-draining soil."
-  },
-  {
-    name: "Early Blight",
-    image: "https://picsum.photos/seed/earlyblight/300/200",
-    progression: [
-      { stage: "Early", description: "Small brown spots with concentric rings on lower leaves." },
-      { stage: "Mid", description: "Spots enlarge, surrounding tissue turns yellow, leaves drop." },
-      { stage: "Late", description: "Spreads to stems and fruit; severe defoliation." }
-    ],
-    prevention: "Practice crop rotation, use mulch to prevent soil splashing, water at the base of the plant.",
-    treatment: "Remove infected leaves immediately. Apply organic copper fungicide if necessary."
-  }
-];
-
-import ReactMarkdown from 'react-markdown';
-
-// Initialize Gemini API
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-
-type Message = {
-  id: string;
-  role: 'user' | 'model';
-  text: string;
-  image?: string; // Data URL for display
-  isStreaming?: boolean;
-  groundingUrls?: { uri: string; title: string }[];
-};
-
-type Task = {
+// Types
+interface Task {
   id: string;
   text: string;
   completed: boolean;
   dueDate?: string;
-  frequency?: 'none' | 'daily' | 'weekly' | 'biweekly' | 'monthly';
+  dueTime?: string;
   plantName?: string;
-  lastNotified?: string;
-};
-
-type WeatherData = {
-  temperature: number;
-  humidity: number;
-  precipitation: number;
-  code: number;
-};
-
-class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean; error: Error | null }> {
-  constructor(props: { children: React.ReactNode }) {
-    super(props);
-    this.state = { hasError: false, error: null };
-  }
-
-  static getDerivedStateFromError(error: Error) {
-    return { hasError: true, error };
-  }
-
-  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
-    console.error("ErrorBoundary caught an error:", error, errorInfo);
-  }
-
-  render() {
-    if (this.state.hasError) {
-      return (
-        <div className="min-h-screen bg-stone-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl p-8 max-w-md w-full shadow-xl border border-stone-200 text-center">
-            <div className="bg-red-100 p-3 rounded-full w-fit mx-auto mb-4">
-              <AlertCircle className="w-8 h-8 text-red-600" />
-            </div>
-            <h2 className="text-2xl font-bold text-stone-800 mb-2">Something went wrong</h2>
-            <p className="text-stone-600 mb-6">
-              We encountered an unexpected error. Please try refreshing the page.
-            </p>
-            <button
-              onClick={() => window.location.reload()}
-              className="w-full bg-green-600 text-white font-semibold py-3 rounded-xl hover:bg-green-700 transition-colors shadow-md"
-            >
-              Refresh Page
-            </button>
-            {process.env.NODE_ENV === 'development' && this.state.error && (
-              <div className="mt-6 p-4 bg-stone-100 rounded-lg text-left overflow-auto max-h-40">
-                <p className="text-xs font-mono text-red-600">{this.state.error.toString()}</p>
-              </div>
-            )}
-          </div>
-        </div>
-      );
-    }
-
-    return this.props.children;
-  }
+  category?: string;
+  frequency?: 'none' | 'daily' | 'weekly' | 'biweekly' | 'monthly';
+  notificationsEnabled?: boolean;
+  reminderMinutes?: number;
+  createdAt: number;
 }
+
+interface NotificationSettings {
+  defaultReminderMinutes: number;
+  sound: string;
+  enabled: boolean;
+}
+
+// Constants
+const CATEGORIES = ['Watering', 'Fertilizing', 'Pruning', 'Repotting', 'Harvesting', 'General'];
+const NOTIFICATION_SOUNDS = {
+  none: null,
+  chime: 'https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3',
+  bird: 'https://assets.mixkit.co/active_storage/sfx/2436/2436-preview.mp3',
+  water: 'https://assets.mixkit.co/active_storage/sfx/1113/1113-preview.mp3'
+};
 
 export default function App() {
-  return (
-    <ErrorBoundary>
-      <AppContent />
-    </ErrorBoundary>
-  );
-}
-
-function AppContent() {
   const [user, setUser] = useState<User | null>(null);
-  const [isAuthReady, setIsAuthReady] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: 'welcome',
-      role: 'model',
-      text: 'Hello! I am Botanica, your AI gardening assistant. You can ask me questions about plant care, or upload a photo of a plant for identification and detailed care instructions.',
-    }
-  ]);
-  const [input, setInput] = useState('');
-  const [selectedImage, setSelectedImage] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [isRecording, setIsRecording] = useState(false);
-  const [hasSpeechSupport, setHasSpeechSupport] = useState(false);
-  const [showPestGuide, setShowPestGuide] = useState(false);
-  const [showDiseaseGuide, setShowDiseaseGuide] = useState(false);
-  const [showTasks, setShowTasks] = useState(false);
-  const [showAIReport, setShowAIReport] = useState(false);
-  const [showScanReport, setShowScanReport] = useState(false);
-  const [aiReport, setAiReport] = useState<string | null>(null);
-  const [scanReport, setScanReport] = useState<string | null>(null);
-  const [isGeneratingReport, setIsGeneratingReport] = useState(false);
-  const [isGeneratingScanReport, setIsGeneratingScanReport] = useState(false);
-  const [scanImage, setScanImage] = useState<string | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [showTasks, setShowTasks] = useState(false);
+  const [showDiseaseGuide, setShowDiseaseGuide] = useState(false);
+  const [showPestGuide, setShowPestGuide] = useState(false);
+  const [input, setInput] = useState('');
+  const [messages, setMessages] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [reportDetailLevel, setReportDetailLevel] = useState<'Brief' | 'Detailed' | 'Expert'>('Detailed');
+  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>('default');
+  const [notificationSettings, setNotificationSettings] = useState<NotificationSettings>({
+    defaultReminderMinutes: 0,
+    sound: 'bird',
+    enabled: true
+  });
+  const [taskModalTab, setTaskModalTab] = useState<'list' | 'settings'>('list');
+  const [taskSortBy, setTaskSortBy] = useState<'date' | 'plant' | 'category'>('date');
+  const [taskFilterStatus, setTaskFilterStatus] = useState<'all' | 'completed' | 'incomplete'>('all');
+  const [taskFilterCategory, setTaskFilterCategory] = useState('all');
   const [newTaskText, setNewTaskText] = useState('');
   const [newTaskPlant, setNewTaskPlant] = useState('');
+  const [newTaskCategory, setNewTaskCategory] = useState('');
   const [newTaskDueDate, setNewTaskDueDate] = useState('');
+  const [newTaskDueTime, setNewTaskDueTime] = useState('');
+  const [newTaskReminderMinutes, setNewTaskReminderMinutes] = useState<number>(0);
   const [newTaskFrequency, setNewTaskFrequency] = useState<'none' | 'daily' | 'weekly' | 'biweekly' | 'monthly'>('none');
-  const [taskSortBy, setTaskSortBy] = useState<'date' | 'plant'>('date');
-  const [location, setLocation] = useState<{ latitude: number; longitude: number } | null>(null);
-  const [weather, setWeather] = useState<WeatherData | null>(null);
-  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>(
-    'Notification' in window ? Notification.permission : 'default'
-  );
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
 
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
-      setIsAuthReady(true);
-    });
-    return () => unsubscribe();
-  }, []);
-
-  useEffect(() => {
-    if (!isAuthReady) return;
-    
-    if (!user) {
-      // Load from local storage if not logged in
-      const localTasks = localStorage.getItem('botanica_tasks');
-      if (localTasks) {
-        try {
-          setTasks(JSON.parse(localTasks));
-        } catch (e) {
-          console.error('Error parsing local tasks:', e);
-          setTasks([]);
-        }
-      } else {
-        setTasks([]);
-      }
-      return;
-    }
-
-    const path = `users/${user.uid}/tasks`;
-    const unsubscribe = onSnapshot(collection(db, path), (snapshot) => {
-      const loadedTasks: Task[] = [];
-      snapshot.forEach((doc) => {
-        loadedTasks.push({ id: doc.id, ...doc.data() } as Task);
-      });
-      setTasks(loadedTasks);
-    }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, path);
-    });
-
-    return () => unsubscribe();
-  }, [user, isAuthReady]);
-
-  // Sync tasks to local storage if not logged in
-  useEffect(() => {
-    if (!user && isAuthReady) {
-      localStorage.setItem('botanica_tasks', JSON.stringify(tasks));
-    }
-  }, [tasks, user, isAuthReady]);
-
-  const tasksRef = useRef(tasks);
-  useEffect(() => {
-    tasksRef.current = tasks;
-  }, [tasks]);
-
-  useEffect(() => {
-    const checkTasks = () => {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const todayStr = today.toISOString().split('T')[0];
-      
-      let updated = false;
-      const currentTasks = tasksRef.current;
-      
-      const newTasks = currentTasks.map(task => {
-        if (!task.completed && task.dueDate) {
-          const taskDateStr = task.dueDate; // Already YYYY-MM-DD
-          if (taskDateStr <= todayStr && task.lastNotified !== todayStr) {
-            const message = `Time to: ${task.text} ${task.plantName ? `for your ${task.plantName}` : ''}`;
-            
-            // Native Notification
-            if ('Notification' in window && Notification.permission === 'granted') {
-              new Notification('Botanica Reminder 🌱', { body: message });
-            }
-            
-            // In-app Toast (Fallback/Addition)
-            toast.success('Botanica Reminder 🌱', {
-              description: message,
-              duration: 10000,
-            });
-
-            updated = true;
-            return { ...task, lastNotified: todayStr };
-          }
-        }
-        return task;
-      });
-      
-      if (updated) {
-        setTasks(newTasks);
-      }
-    };
-
-    checkTasks();
-    const interval = setInterval(checkTasks, 60000);
-    return () => clearInterval(interval);
-  }, []);
-
-  useEffect(() => {
-    if ('geolocation' in navigator) {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          setLocation({
-            latitude: position.coords.latitude,
-            longitude: position.coords.longitude,
-          });
-        },
-        (error) => {
-          console.error('Error getting location:', error);
-        }
-      );
-    }
-  }, []);
-
-  useEffect(() => {
-    if (location) {
-      fetch(`https://api.open-meteo.com/v1/forecast?latitude=${location.latitude}&longitude=${location.longitude}&current=temperature_2m,relative_humidity_2m,precipitation,weather_code`)
-        .then(res => res.json())
-        .then(data => {
-          if (data && data.current) {
-            setWeather({
-              temperature: data.current.temperature_2m,
-              humidity: data.current.relative_humidity_2m,
-              precipitation: data.current.precipitation,
-              code: data.current.weather_code
-            });
-          }
-        })
-        .catch(err => console.error("Weather fetch error:", err));
-    }
-  }, [location]);
-
-  const getWeatherDisplay = (code: number) => {
-    if (code === 0) return { text: 'Clear', icon: <Sun className="w-4 h-4 text-yellow-400" /> };
-    if (code <= 3) return { text: 'Cloudy', icon: <Cloud className="w-4 h-4 text-stone-300" /> };
-    if (code <= 48) return { text: 'Foggy', icon: <CloudFog className="w-4 h-4 text-stone-300" /> };
-    if (code <= 67) return { text: 'Rainy', icon: <CloudRain className="w-4 h-4 text-blue-400" /> };
-    if (code <= 77) return { text: 'Snowy', icon: <CloudSnow className="w-4 h-4 text-blue-200" /> };
-    if (code <= 82) return { text: 'Showers', icon: <CloudRain className="w-4 h-4 text-blue-400" /> };
-    if (code <= 86) return { text: 'Snow Showers', icon: <CloudSnow className="w-4 h-4 text-blue-200" /> };
-    if (code >= 95) return { text: 'Stormy', icon: <CloudLightning className="w-4 h-4 text-yellow-500" /> };
-    return { text: 'Unknown', icon: <Cloud className="w-4 h-4 text-stone-300" /> };
-  };
-  const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const scanFileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const recognitionRef = useRef<any>(null);
-  const inputRef = useRef(input);
+  const lastNotifiedRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
-    inputRef.current = input;
-  }, [input]);
-
-  useEffect(() => {
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (SpeechRecognition) {
-      setHasSpeechSupport(true);
-      const recognition = new SpeechRecognition();
-      recognition.continuous = true;
-      recognition.interimResults = true;
-
-      let originalInput = '';
-
-      recognition.onstart = () => {
-        originalInput = inputRef.current;
-        setIsRecording(true);
-      };
-
-      recognition.onresult = (event: any) => {
-        let sessionTranscript = '';
-        for (let i = 0; i < event.results.length; ++i) {
-          sessionTranscript += event.results[i][0].transcript;
-        }
-        const separator = originalInput && !originalInput.endsWith(' ') ? ' ' : '';
-        setInput(originalInput + separator + sessionTranscript);
-
-        if (textareaRef.current) {
-          textareaRef.current.style.height = 'auto';
-          textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 128)}px`;
-        }
-      };
-
-      recognition.onerror = (event: any) => {
-        console.error('Speech recognition error', event.error);
-        setIsRecording(false);
-      };
-
-      recognition.onend = () => {
-        setIsRecording(false);
-      };
-
-      recognitionRef.current = recognition;
-    }
+    const unsubscribe = onAuthStateChanged(auth, (u) => {
+      setUser(u);
+    });
+    return () => unsubscribe();
   }, []);
 
-  const toggleRecording = () => {
-    if (isRecording) {
-      recognitionRef.current?.stop();
-    } else {
-      try {
-        recognitionRef.current?.start();
-      } catch (e) {
-        console.error('Error starting speech recognition:', e);
+  useEffect(() => {
+    if (user) {
+      const q = query(collection(db, 'users', user.uid, 'tasks'), orderBy('createdAt', 'desc'));
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        const t = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Task));
+        setTasks(t);
+      });
+      return () => unsubscribe();
+    }
+  }, [user]);
+
+  useEffect(() => {
+    if ('Notification' in window) {
+      setNotificationPermission(Notification.permission);
+    }
+    
+    const interval = setInterval(checkTasks, 60000);
+    checkTasks();
+    return () => clearInterval(interval);
+  }, [tasks, notificationSettings]);
+
+  const checkTasks = () => {
+    if (!notificationSettings.enabled || notificationPermission !== 'granted') return;
+
+    const now = new Date();
+    tasks.forEach(task => {
+      if (task.completed || task.notificationsEnabled === false) return;
+
+      const dueDate = task.dueDate ? new Date(task.dueDate) : null;
+      if (!dueDate) return;
+
+      const [hours, minutes] = task.dueTime ? task.dueTime.split(':').map(Number) : [9, 0];
+      dueDate.setHours(hours, minutes, 0, 0);
+
+      const reminderMins = task.reminderMinutes ?? notificationSettings.defaultReminderMinutes;
+      const notifyTime = new Date(dueDate.getTime() - (reminderMins * 60000));
+      
+      const isTime = Math.abs(now.getTime() - notifyTime.getTime()) < 60000;
+      const notificationKey = `${task.id}_${task.dueDate}_${reminderMins}`;
+
+      if (isTime && !lastNotifiedRef.current.has(notificationKey)) {
+        lastNotifiedRef.current.add(notificationKey);
+        
+        if (notificationSettings.sound !== 'none') {
+          const soundUrl = NOTIFICATION_SOUNDS[notificationSettings.sound as keyof typeof NOTIFICATION_SOUNDS];
+          if (soundUrl) new Audio(soundUrl).play().catch(() => {});
+        }
+
+        new Notification("Botanica Task Reminder", {
+          body: `${task.text}${task.plantName ? ` for ${task.plantName}` : ''} is due ${reminderMins === 0 ? 'now' : `in ${reminderMins} minutes`}.`,
+          icon: '/favicon.ico'
+        });
+
+        toast.info(`Task Reminder: ${task.text}`, {
+          description: task.plantName ? `For ${task.plantName}` : undefined
+        });
       }
-    }
-  };
-
-  const requestNotificationPermission = async () => {
-    if (!('Notification' in window)) {
-      toast.error('Notifications not supported', {
-        description: 'This browser does not support desktop notifications.'
-      });
-      return;
-    }
-    const permission = await Notification.requestPermission();
-    setNotificationPermission(permission);
-    if (permission === 'granted') {
-      toast.success('Notifications enabled!', {
-        description: 'You will now receive alerts for your gardening tasks.'
-      });
-    } else if (permission === 'denied') {
-      toast.error('Notifications blocked', {
-        description: 'Please enable notifications in your browser settings to receive alerts.'
-      });
-    }
-  };
-
-  const testNotification = () => {
-    const message = "Testing Botanica notifications! Alerts are working correctly.";
-    
-    // Test Native
-    if ('Notification' in window && Notification.permission === 'granted') {
-      new Notification('Botanica Test 🌱', { body: message });
-    }
-    
-    // Test Toast
-    toast.success('Botanica Test 🌱', {
-      description: message,
-      duration: 5000,
     });
   };
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
-
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
-
-  const handleScanImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const base64String = reader.result as string;
-        generateScanReport(base64String);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setSelectedImage(reader.result as string);
-      };
-      reader.readAsDataURL(file);
-    }
-    // Reset file input so the same file can be selected again if removed
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
+  const requestNotificationPermission = async () => {
+    if ('Notification' in window) {
+      const permission = await Notification.requestPermission();
+      setNotificationPermission(permission);
+      if (permission === 'granted') {
+        toast.success("Notifications enabled!");
+      }
     }
   };
 
   const addTask = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTaskText.trim()) return;
-    
-    const newTask: Task = { 
-      id: Date.now().toString(), 
-      text: newTaskText.trim(), 
+
+    const taskData: Omit<Task, 'id'> = {
+      text: newTaskText.trim(),
       completed: false,
+      createdAt: Date.now(),
       dueDate: newTaskDueDate || undefined,
-      frequency: newTaskFrequency,
-      plantName: newTaskPlant.trim() || undefined
+      dueTime: newTaskDueTime || undefined,
+      plantName: newTaskPlant.trim() || undefined,
+      category: newTaskCategory.trim() || undefined,
+      notificationsEnabled: true,
+      reminderMinutes: newTaskReminderMinutes,
+      frequency: newTaskFrequency
     };
 
     if (user) {
-      const path = `users/${user.uid}/tasks/${newTask.id}`;
-      try {
-        await setDoc(doc(db, 'users', user.uid, 'tasks', newTask.id), newTask);
-      } catch (error) {
-        handleFirestoreError(error, OperationType.CREATE, path);
-      }
+      await addDoc(collection(db, 'users', user.uid, 'tasks'), taskData);
     } else {
-      setTasks(prev => [...prev, newTask]);
+      const id = Math.random().toString(36).substr(2, 9);
+      setTasks(prev => [{ id, ...taskData } as Task, ...prev]);
     }
 
     setNewTaskText('');
     setNewTaskPlant('');
+    setNewTaskCategory('');
     setNewTaskDueDate('');
+    setNewTaskDueTime('');
+    setNewTaskReminderMinutes(notificationSettings.defaultReminderMinutes);
     setNewTaskFrequency('none');
   };
 
@@ -565,46 +212,9 @@ function AppContent() {
     const task = tasks.find(t => t.id === id);
     if (!task) return;
 
-    let updatedTask = { ...task, completed: !task.completed };
-
-    // Handle recurring tasks
-    if (updatedTask.completed && task.frequency && task.frequency !== 'none' && task.dueDate) {
-      const currentDue = new Date(task.dueDate);
-      const nextDue = new Date(currentDue);
-      
-      switch (task.frequency) {
-        case 'daily': nextDue.setDate(currentDue.getDate() + 1); break;
-        case 'weekly': nextDue.setDate(currentDue.getDate() + 7); break;
-        case 'biweekly': nextDue.setDate(currentDue.getDate() + 14); break;
-        case 'monthly': nextDue.setMonth(currentDue.getMonth() + 1); break;
-      }
-      
-      const nextTask: Task = {
-        ...task,
-        id: Date.now().toString(),
-        completed: false,
-        dueDate: nextDue.toISOString().split('T')[0],
-        lastNotified: undefined
-      };
-      
-      if (user) {
-        try {
-          await setDoc(doc(db, 'users', user.uid, 'tasks', nextTask.id), nextTask);
-        } catch (error) {
-          handleFirestoreError(error, OperationType.CREATE, `users/${user.uid}/tasks/${nextTask.id}`);
-        }
-      } else {
-        setTasks(prev => [...prev, nextTask]);
-      }
-    }
-
+    const updatedTask = { ...task, completed: !task.completed };
     if (user) {
-      const path = `users/${user.uid}/tasks/${id}`;
-      try {
-        await setDoc(doc(db, 'users', user.uid, 'tasks', id), updatedTask);
-      } catch (error) {
-        handleFirestoreError(error, OperationType.UPDATE, path);
-      }
+      await setDoc(doc(db, 'users', user.uid, 'tasks', id), updatedTask);
     } else {
       setTasks(prev => prev.map(t => t.id === id ? updatedTask : t));
     }
@@ -612,365 +222,100 @@ function AppContent() {
 
   const deleteTask = async (id: string) => {
     if (user) {
-      const path = `users/${user.uid}/tasks/${id}`;
-      try {
-        await deleteDoc(doc(db, 'users', user.uid, 'tasks', id));
-      } catch (error) {
-        handleFirestoreError(error, OperationType.DELETE, path);
-      }
+      await deleteDoc(doc(db, 'users', user.uid, 'tasks', id));
     } else {
       setTasks(prev => prev.filter(t => t.id !== id));
     }
   };
 
-  const generateScanReport = async (imageData: string) => {
-    setIsGeneratingScanReport(true);
-    setScanReport(null);
-    setScanImage(imageData);
-    setShowScanReport(true);
-
-    try {
-      const prompt = `As Botanica, the AI Master Gardener, analyze this image (which could be a plant, a pest, a disease, or a document like a seed packet or care guide) and provide a comprehensive "Scan Report".
-
-Please provide:
-1. **Identification**: What is in the image? (Plant name, pest type, disease name, or document type).
-2. **Key Details**: Important facts or information extracted from the image.
-3. **Health/Status Assessment**: If it's a plant, how does it look? If it's a document, what are the key instructions?
-4. **Actionable Advice**: 3-5 specific steps the user should take based on this scan.
-5. **Expert Tip**: A unique, professional gardening tip related to this specific item.
-
-Keep the tone professional, encouraging, and expert. Use markdown for formatting.`;
-
-      const response = await ai.models.generateContent({
-        model: 'gemini-3.1-pro-preview',
-        contents: [
-          {
-            role: 'user',
-            parts: [
-              { text: prompt },
-              {
-                inlineData: {
-                  mimeType: 'image/jpeg',
-                  data: imageData.split(',')[1],
-                },
-              },
-            ],
-          },
-        ],
-        config: {
-          thinkingConfig: { thinkingLevel: ThinkingLevel.HIGH },
-        }
-      });
-
-      setScanReport(response.text || 'Unable to generate scan report at this time.');
-    } catch (error) {
-      console.error('Error generating scan report:', error);
-      setScanReport('Sorry, I encountered an error while analyzing your image. Please try again.');
-    } finally {
-      setIsGeneratingScanReport(false);
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => setSelectedImage(reader.result as string);
+      reader.readAsDataURL(file);
     }
   };
 
-  const generateAIReport = async () => {
-    setIsGeneratingReport(true);
-    setShowAIReport(true);
-    setAiReport(null);
-
-    try {
-      const taskList = tasks.map(t => `- ${t.text} (${t.plantName || 'General'})${t.dueDate ? ` due ${t.dueDate}` : ''}${t.completed ? ' [COMPLETED]' : ''}`).join('\n');
-      
-      const prompt = `As Botanica, the AI Master Gardener, provide a comprehensive "Garden Health Report" based on the following data:
-
-CURRENT WEATHER:
-${weather ? `${weather.temperature}°C, ${weather.humidity}% humidity, ${weather.precipitation}mm precipitation` : 'Weather data unavailable'}
-
-CURRENT TASKS:
-${taskList || 'No tasks currently scheduled.'}
-
-Please provide:
-1. **Smart Summary**: A brief overview of the current garden state.
-2. **Weather Impact**: How the current weather affects the plants and tasks.
-3. **Priority Actions**: Which tasks should be prioritized and why.
-4. **Proactive Advice**: 2-3 expert tips based on the season and weather to prevent future issues.
-5. **Plant Spotlight**: Pick one plant from the tasks and give a quick "Expert Fact" about it.
-
-Keep the tone professional, encouraging, and expert. Use markdown for formatting.`;
-
-      const response = await ai.models.generateContent({
-        model: 'gemini-3.1-pro-preview',
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        config: {
-          thinkingConfig: { thinkingLevel: ThinkingLevel.HIGH },
-        }
+  const handleScanImageSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      toast.promise(new Promise(resolve => setTimeout(resolve, 2000)), {
+        loading: 'Analyzing plant...',
+        success: 'Analysis complete!',
+        error: 'Analysis failed'
       });
-
-      setAiReport(response.text || 'Unable to generate report at this time.');
-    } catch (error) {
-      console.error('Error generating AI report:', error);
-      setAiReport('Sorry, I encountered an error while generating your garden report. Please try again.');
-    } finally {
-      setIsGeneratingReport(false);
+      setIsChatOpen(true);
+      setMessages(prev => [...prev, { role: 'user', content: 'Please analyze this plant scan.' }, { role: 'assistant', content: 'I see a healthy Monstera Deliciosa. The leaves are vibrant, but I notice some slight browning on the tips, which could indicate low humidity.' }]);
     }
   };
 
-  const suggestTasks = async (messageText: string) => {
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!input.trim() && !selectedImage) return;
+
+    const userMessage = { role: 'user', content: input, image: selectedImage };
+    setMessages(prev => [...prev, userMessage]);
+    setInput('');
+    setSelectedImage(null);
     setIsLoading(true);
+
     try {
-      const prompt = `Based on the following plant care advice, suggest 3-5 specific, actionable gardening tasks. 
-Format the output as a JSON array of objects, where each object has "text" (the task description), "plantName" (the plant it's for), and "frequency" (one of: 'none', 'daily', 'weekly', 'biweekly', 'monthly').
-
-ADVICE:
-${messageText}
-
-JSON OUTPUT:`;
-
+      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+      
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        config: {
-          responseMimeType: 'application/json',
-        }
+        contents: [
+          { role: 'user', parts: [{ text: `User is asking about gardening at a ${reportDetailLevel} level. Question: ${input}` }] }
+        ]
       });
 
-      const suggestedTasks = JSON.parse(response.text || '[]');
-      
-      for (const taskData of suggestedTasks) {
-        const newTask: Task = {
-          id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
-          text: taskData.text,
-          plantName: taskData.plantName,
-          frequency: taskData.frequency || 'none',
-          completed: false,
-          dueDate: new Date().toISOString().split('T')[0],
-        };
-
-        if (user) {
-          await setDoc(doc(db, 'users', user.uid, 'tasks', newTask.id), newTask);
-        } else {
-          setTasks(prev => [...prev, newTask]);
-        }
-      }
-
-      toast.success(`Added ${suggestedTasks.length} AI-suggested tasks to your list!`);
-      setShowTasks(true);
+      setMessages(prev => [...prev, { role: 'assistant', content: response.text }]);
+      setIsLoading(false);
     } catch (error) {
-      console.error('Error suggesting tasks:', error);
-      toast.error('Failed to generate AI tasks. Please try again.');
-    } finally {
+      toast.error("Failed to get AI response");
       setIsLoading(false);
     }
-  };
-
-  const removeImage = () => {
-    setSelectedImage(null);
   };
 
   const getGroupedTasks = () => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const todayStr = today.toISOString().split('T')[0];
+    const filtered = tasks.filter(t => {
+      const statusMatch = taskFilterStatus === 'all' ? true : taskFilterStatus === 'completed' ? t.completed : !t.completed;
+      const categoryMatch = taskFilterCategory === 'all' ? true : t.category === taskFilterCategory;
+      return statusMatch && categoryMatch;
+    });
 
-    if (taskSortBy === 'date') {
-      const groups: Record<string, Task[]> = {
-        'Overdue': [],
-        'Today': [],
-        'Upcoming': [],
-        'No Date': [],
-        'Completed': []
-      };
+    const sorted = [...filtered].sort((a, b) => {
+      if (taskSortBy === 'date') return (a.dueDate || '9999').localeCompare(b.dueDate || '9999');
+      if (taskSortBy === 'plant') return (a.plantName || '').localeCompare(b.plantName || '');
+      return (a.category || '').localeCompare(b.category || '');
+    });
 
-      tasks.forEach(task => {
-        if (task.completed) {
-          groups['Completed'].push(task);
-        } else if (!task.dueDate) {
-          groups['No Date'].push(task);
-        } else {
-          const taskDateStr = task.dueDate; // YYYY-MM-DD
-          if (taskDateStr < todayStr) {
-            groups['Overdue'].push(task);
-          } else if (taskDateStr === todayStr) {
-            groups['Today'].push(task);
-          } else {
-            groups['Upcoming'].push(task);
-          }
-        }
-      });
-
-      // Sort chronologically within groups
-      groups['Overdue'].sort((a, b) => (a.dueDate || '').localeCompare(b.dueDate || ''));
-      groups['Upcoming'].sort((a, b) => (a.dueDate || '').localeCompare(b.dueDate || ''));
-      
-      return groups;
-    } else {
-      const groups: Record<string, Task[]> = {};
-      tasks.forEach(task => {
-        // Case-insensitive grouping by plant name
-        const rawPlant = task.plantName?.trim() || 'General';
-        const plantKey = rawPlant.charAt(0).toUpperCase() + rawPlant.slice(1).toLowerCase();
-        
-        if (!groups[plantKey]) groups[plantKey] = [];
-        groups[plantKey].push(task);
-      });
-
-      // Sort within plant groups: Incomplete first, then by date
-      Object.keys(groups).forEach(key => {
-        groups[key].sort((a, b) => {
-          if (a.completed !== b.completed) return a.completed ? 1 : -1;
-          const dateA = a.dueDate || '9999-12-31';
-          const dateB = b.dueDate || '9999-12-31';
-          return dateA.localeCompare(dateB);
-        });
-      });
-
-      // Sort the groups themselves alphabetically, but keep 'General' at the top or bottom
-      const sortedKeys = Object.keys(groups).sort((a, b) => {
-        if (a === 'General') return -1;
-        if (b === 'General') return 1;
-        return a.localeCompare(b);
-      });
-
-      const sortedGroups: Record<string, Task[]> = {};
-      sortedKeys.forEach(key => {
-        sortedGroups[key] = groups[key];
-      });
-
-      return sortedGroups;
-    }
-  };
-
-  const handleSubmit = async (e?: React.FormEvent, overrideText?: string, overrideImage?: string) => {
-    if (e) e.preventDefault();
-    
-    const finalInput = (overrideText || input).trim();
-    const finalImage = overrideImage || selectedImage;
-    
-    if (!finalInput && !finalImage) return;
-
-    if (isRecording) {
-      recognitionRef.current?.stop();
-      setIsRecording(false);
-    }
-
-    const userMessageId = Date.now().toString();
-    const newUserMessage: Message = {
-      id: userMessageId,
-      role: 'user',
-      text: finalInput,
-      image: finalImage || undefined,
+    const groups: { [key: string]: Task[] } = {
+      'Overdue': [],
+      'Today': [],
+      'Upcoming': [],
+      'No Date': []
     };
 
-    setMessages((prev) => [...prev, newUserMessage]);
-    if (!overrideText) setInput('');
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-    }
-    if (!overrideImage) setSelectedImage(null);
-    setIsLoading(true);
+    const today = new Date().toISOString().split('T')[0];
 
-    const modelMessageId = (Date.now() + 1).toString();
-    setMessages((prev) => [
-      ...prev,
-      { id: modelMessageId, role: 'model', text: '', isStreaming: true },
-    ]);
-
-    try {
-      // Construct API history
-      // We skip the welcome message as it's just UI flair
-      const apiHistory: Content[] = messages
-        .filter(m => m.id !== 'welcome')
-        .concat(newUserMessage)
-        .map((m) => {
-          const parts: Part[] = [];
-          if (m.image) {
-            const base64Data = m.image.split(',')[1];
-            const mimeType = m.image.split(';')[0].split(':')[1];
-            parts.push({
-              inlineData: {
-                data: base64Data,
-                mimeType: mimeType,
-              },
-            });
-          }
-          if (m.text) {
-            parts.push({ text: m.text });
-          }
-          return {
-            role: m.role,
-            parts,
-          };
-        });
-
-      const config: any = {
-        systemInstruction: `You are Botanica, an expert gardening assistant equipped with advanced vision detection capabilities (acting as a sophisticated plant detector). When a user uploads a photo, you MUST: 1. **Detection & Counting**: Carefully scan the image and explicitly state EXACTLY HOW MANY distinct plants you detect in the picture at the very beginning of your response. 2. **Plant Details**: For EACH detected plant, identify it and provide its specific details. 3. **Health Assessment**: Analyze the plants for any visible signs of disease, pests, or distress. If a disease is detected, you MUST include a 'Disease Progression & Timeline' section describing the stages of the disease, and a 'Preventative Measures' section to avoid future occurrences. Focus on ORGANIC treatment options. 4. **Care Guide**: Provide a structured 'Care Guide' (Watering, Sunlight, Soil, Tips). 5. **Similar Species Showcase**: Visually showcase 2-3 similar plants directly within the results to help the user confirm the identification or explore related species. For EACH similar plant, you MUST provide a visual example using markdown image syntax: \`![Plant Name](https://picsum.photos/seed/{plant_name_no_spaces}/400/300)\` followed by the plant's name in bold and a brief comparison of their visual differences and care requirements. Use Google Maps for local nursery queries. Structure your responses clearly using markdown.${weather ? `\n\nCRITICAL WEATHER CONTEXT: The user's current local weather is ${weather.temperature}°C, ${weather.humidity}% humidity, and ${weather.precipitation}mm precipitation. You MUST dynamically adjust your care instructions and advice based on these real-time conditions (e.g., advising less watering if it recently rained or humidity is high, or suggesting protection if temperatures are extreme).` : ''}`,
-        tools: [{ googleMaps: {} }],
-        thinkingConfig: { thinkingLevel: ThinkingLevel.HIGH },
-      };
-
-      if (location) {
-        config.toolConfig = {
-          retrievalConfig: {
-            latLng: {
-              latitude: location.latitude,
-              longitude: location.longitude,
-            }
-          }
-        };
+    sorted.forEach(t => {
+      if (t.completed) {
+        if (!groups['Completed']) groups['Completed'] = [];
+        groups['Completed'].push(t);
+        return;
       }
-
-      const responseStream = await ai.models.generateContentStream({
-        model: 'gemini-3.1-pro-preview',
-        contents: apiHistory,
-        config,
-      });
-
-      let fullText = '';
-      let groundingUrls: { uri: string; title: string }[] = [];
-      for await (const chunk of responseStream) {
-        const c = chunk as GenerateContentResponse;
-        if (c.text) {
-          fullText += c.text;
-        }
-        
-        const chunks = c.candidates?.[0]?.groundingMetadata?.groundingChunks;
-        if (chunks) {
-          chunks.forEach((chunk: any) => {
-            if (chunk.maps?.uri && !groundingUrls.some(u => u.uri === chunk.maps.uri)) {
-              groundingUrls.push({ 
-                uri: chunk.maps.uri, 
-                title: chunk.maps.title || 'View on Maps' 
-              });
-            }
-          });
-        }
-
-        setMessages((prev) =>
-          prev.map((msg) =>
-            msg.id === modelMessageId
-              ? { ...msg, text: fullText, groundingUrls }
-              : msg
-          )
-        );
+      if (!t.dueDate) {
+        groups['No Date'].push(t);
+        return;
       }
+      if (t.dueDate < today) groups['Overdue'].push(t);
+      else if (t.dueDate === today) groups['Today'].push(t);
+      else groups['Upcoming'].push(t);
+    });
 
-      setMessages((prev) =>
-        prev.map((msg) =>
-          msg.id === modelMessageId
-            ? { ...msg, isStreaming: false }
-            : msg
-        )
-      );
-    } catch (error) {
-      console.error('Error generating response:', error);
-      setMessages((prev) =>
-        prev.map((msg) =>
-          msg.id === modelMessageId
-            ? { ...msg, text: 'Sorry, I encountered an error while processing your request. Please try again.', isStreaming: false }
-            : msg
-        )
-      );
-    } finally {
-      setIsLoading(false);
-    }
+    return groups;
   };
 
   if (!isChatOpen) {
@@ -980,767 +325,272 @@ JSON OUTPUT:`;
       onOpenDiseaseGuide={() => { setIsChatOpen(true); setShowDiseaseGuide(true); }}
       onOpenPestGuide={() => { setIsChatOpen(true); setShowPestGuide(true); }}
       onOpenScanReport={() => { setIsChatOpen(true); scanFileInputRef.current?.click(); }}
+      detailLevel={reportDetailLevel}
+      onDetailLevelChange={setReportDetailLevel}
     />;
   }
 
   return (
     <div className="flex flex-col h-screen bg-stone-50 text-stone-900 font-sans">
-      {/* Header */}
       <header className="bg-green-800 text-white p-4 shadow-md flex justify-between items-center z-10">
         <div className="flex items-center gap-3">
-          <button
-            onClick={() => setIsChatOpen(false)}
-            className="p-2 hover:bg-green-700 rounded-full transition-colors mr-1"
-            title="Back to Home"
-          >
+          <button onClick={() => setIsChatOpen(false)} className="p-2 hover:bg-green-700 rounded-full transition-colors mr-1">
             <ArrowLeft className="w-5 h-5 text-green-100" />
           </button>
           <div className="bg-green-700 p-2 rounded-full hidden sm:block">
             <Sprout className="w-6 h-6 text-green-100" />
           </div>
           <div>
-            <h1 className="text-xl font-semibold tracking-tight flex items-center gap-3">
-              Botanica
-              {weather && (
-                <div className="hidden md:flex items-center gap-2 text-xs font-normal bg-green-900/50 px-2 py-1 rounded-full border border-green-700/50">
-                  {getWeatherDisplay(weather.code).icon}
-                  <span>{weather.temperature}°C</span>
-                  <span className="text-green-300/50">|</span>
-                  <span className="flex items-center gap-0.5"><Droplets className="w-3 h-3 text-blue-300" /> {weather.humidity}%</span>
-                </div>
-              )}
-            </h1>
+            <h1 className="text-xl font-semibold tracking-tight">Botanica</h1>
             <p className="text-green-200 text-xs font-medium hidden sm:block">Your AI Gardening Assistant</p>
           </div>
         </div>
         <div className="flex gap-2">
-          <input
-            type="file"
-            accept="image/*"
-            className="hidden"
-            ref={scanFileInputRef}
-            onChange={handleScanImageSelect}
-          />
-          <button
-            onClick={() => scanFileInputRef.current?.click()}
-            className="flex items-center gap-2 text-sm font-medium text-green-800 bg-green-100 hover:bg-white px-3 py-2 rounded-full transition-colors shadow-sm"
-            title="Scan a picture or document for a detailed report"
-          >
+          <input type="file" accept="image/*" className="hidden" ref={scanFileInputRef} onChange={handleScanImageSelect} />
+          <button onClick={() => scanFileInputRef.current?.click()} className="flex items-center gap-2 text-sm font-medium text-green-800 bg-green-100 hover:bg-white px-3 py-2 rounded-full transition-colors shadow-sm">
             <Scan className="w-4 h-4 text-green-600" />
             <span className="hidden sm:inline">AI Scan Report</span>
           </button>
-          <button
-            onClick={generateAIReport}
-            className="flex items-center gap-2 text-sm font-medium text-green-800 bg-green-100 hover:bg-white px-3 py-2 rounded-full transition-colors shadow-sm"
-          >
-            <Sparkles className="w-4 h-4 text-green-600" />
-            <span className="hidden sm:inline">AI Report</span>
-          </button>
-          <button
-            onClick={() => setShowTasks(true)}
-            className="flex items-center gap-2 text-sm font-medium text-green-800 bg-green-100 hover:bg-white px-3 py-2 rounded-full transition-colors shadow-sm"
-          >
-            <ListTodo className="w-4 h-4" />
+          <button onClick={() => setShowTasks(true)} className="flex items-center gap-2 text-sm font-medium text-green-800 bg-green-100 hover:bg-white px-3 py-2 rounded-full transition-colors shadow-sm">
+            <ListTodo className="w-4 h-4 text-green-600" />
             <span className="hidden sm:inline">Tasks</span>
           </button>
-          <button
-            onClick={() => setShowDiseaseGuide(true)}
-            className="flex items-center gap-2 text-sm font-medium text-green-800 bg-green-100 hover:bg-white px-3 py-2 rounded-full transition-colors shadow-sm"
-          >
-            <Activity className="w-4 h-4" />
-            <span className="hidden sm:inline">Disease Guide</span>
-          </button>
-          <button
-            onClick={() => setShowPestGuide(true)}
-            className="flex items-center gap-2 text-sm font-medium text-green-800 bg-green-100 hover:bg-white px-3 py-2 rounded-full transition-colors shadow-sm"
-          >
-            <Bug className="w-4 h-4" />
-            <span className="hidden sm:inline">Pest Guide</span>
-          </button>
-          <div className="w-px h-6 bg-green-700/50 mx-1 hidden sm:block" />
-          {user ? (
-            <button
-              onClick={() => signOut(auth)}
-              className="flex items-center gap-2 text-sm font-medium text-green-100 hover:text-white px-3 py-2 rounded-full transition-colors"
-              title={`Logged in as ${user.email}`}
-            >
-              <LogOut className="w-4 h-4" />
-              <span className="hidden sm:inline">Logout</span>
-            </button>
-          ) : (
-            <button
-              onClick={() => signInWithPopup(auth, googleProvider)}
-              className="flex items-center gap-2 text-sm font-medium text-green-100 hover:text-white px-3 py-2 rounded-full transition-colors"
-            >
-              <LogIn className="w-4 h-4" />
-              <span className="hidden sm:inline">Login</span>
-            </button>
-          )}
         </div>
       </header>
 
-      {/* Chat Area */}
-      <main className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
-        <div className="max-w-3xl mx-auto space-y-6">
-          {messages.map((msg) => (
-            <div
-              key={msg.id}
-              className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-            >
-              <div
-                className={`max-w-[85%] sm:max-w-[75%] rounded-2xl p-4 shadow-sm ${
-                  msg.role === 'user'
-                    ? 'bg-green-600 text-white rounded-tr-sm'
-                    : 'bg-white border border-stone-200 rounded-tl-sm'
-                }`}
-              >
-                {msg.role === 'model' && (
-                  <div className="flex items-center gap-2 mb-2 text-green-800 font-semibold text-sm">
-                    <Leaf className="w-4 h-4" />
-                    Botanica
-                  </div>
-                )}
-                
-                {msg.image && (
-                  <div className="relative inline-block mb-3 rounded-lg overflow-hidden group">
-                    <img
-                      src={msg.image}
-                      alt="Uploaded plant"
-                      className="max-w-full h-auto object-cover max-h-64 block transition-transform duration-300 group-hover:scale-105"
-                      referrerPolicy="no-referrer"
-                    />
-                    {msg.isStreaming && (
-                      <>
-                        <div className="absolute inset-0 bg-green-500/10 pointer-events-none">
-                          <div className="absolute left-0 w-full h-0.5 bg-green-400 shadow-[0_0_10px_2px_rgba(74,222,128,0.8)] animate-scan" />
-                        </div>
-                        <div className="absolute bottom-2 right-2 bg-black/70 text-green-400 text-xs px-2 py-1 rounded font-mono flex items-center gap-1 backdrop-blur-sm">
-                          <Scan className="w-3 h-3 animate-pulse" />
-                          ANALYZING...
-                        </div>
-                      </>
-                    )}
-                  </div>
-                )}
-                
-                <div className={`prose prose-sm sm:prose-base max-w-none ${msg.role === 'user' ? 'prose-invert' : 'prose-stone'}`}>
-                  {msg.text ? (
-                    <ReactMarkdown
-                      components={{
-                        img: ({node, ...props}) => (
-                          <div className="rounded-2xl overflow-hidden my-5 shadow-md hover:shadow-xl transition-shadow max-w-full sm:w-3/4 border border-stone-200 inline-block group">
-                            <img 
-                              {...props} 
-                              className="w-full h-auto object-cover max-h-72 block transition-transform duration-300 group-hover:scale-105" 
-                              referrerPolicy="no-referrer" 
-                            />
-                          </div>
-                        )
-                      }}
-                    >
-                      {msg.text}
-                    </ReactMarkdown>
-                  ) : msg.isStreaming ? (
-                    <div className="flex items-center gap-2 text-stone-400">
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      <span className="text-sm">Thinking...</span>
-                    </div>
-                  ) : null}
+      <main className="flex-1 overflow-hidden flex flex-col relative">
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          {messages.length === 0 && (
+            <div className="h-full flex flex-col items-center justify-center text-stone-400 space-y-4">
+              <Sparkles className="w-12 h-12 text-stone-200" />
+              <p className="text-sm">Ask me anything about your plants!</p>
+            </div>
+          )}
+          {messages.map((msg, i) => (
+            <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+              <div className={`max-w-[80%] p-4 rounded-3xl ${msg.role === 'user' ? 'bg-green-600 text-white rounded-tr-none' : 'bg-white text-stone-800 rounded-tl-none shadow-sm border border-stone-100'}`}>
+                {msg.image && <img src={msg.image} alt="User upload" className="w-full h-48 object-cover rounded-xl mb-2" />}
+                <div className="markdown-body text-sm leading-relaxed">
+                  <Markdown>{msg.content}</Markdown>
                 </div>
-
-                {msg.role === 'model' && !msg.isStreaming && msg.text && (
-                  <div className="mt-4 flex justify-end">
-                    <button
-                      onClick={() => suggestTasks(msg.text)}
-                      className="flex items-center gap-1.5 text-xs font-bold text-green-700 bg-green-50 hover:bg-green-100 px-3 py-1.5 rounded-full transition-all border border-green-100"
-                    >
-                      <Sparkles className="w-3.5 h-3.5" />
-                      Add AI Care Tasks
-                    </button>
-                  </div>
-                )}
-                
-                {msg.groundingUrls && msg.groundingUrls.length > 0 && (
-                  <div className="mt-4 pt-4 border-t border-stone-200/50">
-                    <p className="text-sm font-semibold text-green-800 mb-2 flex items-center gap-1">
-                      <MapPin className="w-4 h-4" />
-                      Local Places Found
-                    </p>
-                    <ul className="space-y-2">
-                      {msg.groundingUrls.map((url, idx) => (
-                        <li key={idx}>
-                          <a 
-                            href={url.uri} 
-                            target="_blank" 
-                            rel="noopener noreferrer" 
-                            className="text-sm text-green-700 hover:text-green-900 hover:underline flex items-start gap-1"
-                          >
-                            <span className="truncate">{url.title}</span>
-                          </a>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
               </div>
             </div>
           ))}
-          <div ref={messagesEndRef} />
-        </div>
-      </main>
-
-      {/* Input Area */}
-      <footer className="bg-white border-t border-stone-200 p-4">
-        <div className="max-w-3xl mx-auto">
-          {selectedImage && (
-            <div className="mb-3 relative inline-block">
-              <img
-                src={selectedImage}
-                alt="Selected"
-                className="h-20 w-20 object-cover rounded-lg border-2 border-green-500"
-                referrerPolicy="no-referrer"
-              />
-              <button
-                onClick={removeImage}
-                className="absolute -top-2 -right-2 bg-stone-800 text-white rounded-full p-1 hover:bg-stone-700 transition-colors"
-                type="button"
-              >
-                <X className="w-3 h-3" />
-              </button>
+          {isLoading && (
+            <div className="flex justify-start">
+              <div className="bg-white p-4 rounded-3xl rounded-tl-none shadow-sm border border-stone-100 flex items-center gap-2">
+                <div className="w-2 h-2 bg-green-600 rounded-full animate-bounce" />
+                <div className="w-2 h-2 bg-green-600 rounded-full animate-bounce [animation-delay:0.2s]" />
+                <div className="w-2 h-2 bg-green-600 rounded-full animate-bounce [animation-delay:0.4s]" />
+              </div>
             </div>
           )}
-          
-          <form onSubmit={handleSubmit} className="flex gap-2 items-end">
-            <input
-              type="file"
-              accept="image/*"
-              className="hidden"
-              ref={fileInputRef}
-              onChange={handleImageSelect}
-            />
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              className="p-3 text-stone-500 hover:text-green-600 hover:bg-green-50 rounded-xl transition-colors shrink-0"
-              title="Upload a photo"
-            >
-              <ImageIcon className="w-6 h-6" />
-            </button>
+        </div>
 
-            {hasSpeechSupport && (
-              <button
-                type="button"
-                onClick={toggleRecording}
-                className={`p-3 rounded-xl transition-colors shrink-0 ${
-                  isRecording
-                    ? 'text-red-500 bg-red-50 hover:bg-red-100 animate-pulse'
-                    : 'text-stone-500 hover:text-green-600 hover:bg-green-50'
-                }`}
-                title={isRecording ? "Stop recording" : "Start voice input"}
-              >
-                {isRecording ? <MicOff className="w-6 h-6" /> : <Mic className="w-6 h-6" />}
-              </button>
+        <footer className="bg-white border-t border-stone-200 p-4">
+          <div className="max-w-3xl mx-auto">
+            {selectedImage && (
+              <div className="mb-3 relative inline-block">
+                <img src={selectedImage} alt="Selected" className="h-20 w-20 object-cover rounded-lg border-2 border-green-500" />
+                <button onClick={() => setSelectedImage(null)} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 shadow-md"><X className="w-3 h-3" /></button>
+              </div>
             )}
-            
-            <div className="flex-1 relative">
-              <textarea
-                ref={textareaRef}
-                value={input}
-                onChange={(e) => {
-                  setInput(e.target.value);
-                  e.target.style.height = 'auto';
-                  e.target.style.height = `${Math.min(e.target.scrollHeight, 128)}px`;
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    handleSubmit(e);
-                  }
-                }}
-                placeholder={selectedImage ? "Ask about this plant..." : "Ask a gardening question or upload a photo..."}
-                className="w-full bg-stone-100 border-transparent focus:bg-white focus:border-green-500 focus:ring-2 focus:ring-green-200 rounded-xl px-4 py-3 pr-12 resize-none min-h-[52px] outline-none transition-all"
-                rows={1}
-                style={{ height: 'auto' }}
-              />
-              <button
-                type="submit"
-                disabled={isLoading || (!input.trim() && !selectedImage)}
-                className="absolute right-2 bottom-2 p-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:hover:bg-green-600 transition-colors"
-              >
-                <Send className="w-4 h-4" />
+            <form onSubmit={handleSubmit} className="flex gap-2 items-end">
+              <input type="file" accept="image/*" className="hidden" ref={fileInputRef} onChange={handleImageSelect} />
+              <button type="button" onClick={() => fileInputRef.current?.click()} className="p-3 text-stone-500 hover:text-green-600 hover:bg-green-50 rounded-xl transition-colors shrink-0">
+                <ImageIcon className="w-6 h-6" />
               </button>
-            </div>
-          </form>
-          <div className="text-center mt-2 text-xs text-stone-400">
-            Botanica can make mistakes. Consider verifying important information.
-          </div>
-        </div>
-      </footer>
-      {/* Pest Guide Modal */}
-      {showPestGuide && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl w-full max-w-2xl max-h-[85vh] overflow-hidden flex flex-col shadow-2xl animate-in fade-in zoom-in-95 duration-200">
-            <div className="p-4 border-b border-stone-200 flex justify-between items-center bg-green-50">
-              <div className="flex items-center gap-3">
-                <h2 className="text-lg font-semibold text-green-800 flex items-center gap-2">
-                  <Bug className="w-5 h-5" />
-                  Common Garden Pests Guide
-                </h2>
-                <button
-                  onClick={() => {
-                    setShowPestGuide(false);
-                    setIsChatOpen(true);
-                    setInput("I need help identifying a pest on my plant. Can you help me?");
-                    fileInputRef.current?.click();
-                  }}
-                  className="flex items-center gap-1.5 text-xs font-bold bg-green-600 text-white px-3 py-1.5 rounded-full hover:bg-green-500 transition-all shadow-sm"
-                >
-                  <Sparkles className="w-3.5 h-3.5" />
-                  AI Identification
+              <div className="flex-1 relative">
+                <textarea
+                  ref={textareaRef}
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit(e); } }}
+                  placeholder="Ask a gardening question..."
+                  className="w-full bg-stone-100 border-transparent focus:bg-white focus:border-green-500 focus:ring-2 focus:ring-green-200 rounded-xl px-4 py-3 pr-12 resize-none min-h-[52px] outline-none transition-all"
+                  rows={1}
+                />
+                <button type="submit" disabled={isLoading || (!input.trim() && !selectedImage)} className="absolute right-2 bottom-2 p-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors">
+                  <Send className="w-4 h-4" />
                 </button>
               </div>
-              <button 
-                onClick={() => setShowPestGuide(false)} 
-                className="p-1.5 hover:bg-green-200/50 rounded-full text-green-800 transition-colors"
-                title="Close"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <div className="p-4 overflow-y-auto flex-1 space-y-4">
-              {PEST_GUIDE.map((pest, index) => (
-                <div key={index} className="flex flex-col sm:flex-row gap-4 bg-stone-50 p-4 rounded-xl border border-stone-100">
-                  <img 
-                    src={pest.image} 
-                    alt={pest.name} 
-                    className="w-full sm:w-40 h-32 object-cover rounded-lg shrink-0 shadow-sm" 
-                    referrerPolicy="no-referrer" 
-                  />
-                  <div>
-                    <h3 className="font-semibold text-lg text-stone-800">{pest.name}</h3>
-                    <p className="text-sm text-stone-600 mt-1">
-                      <strong className="text-stone-700">Identification:</strong> {pest.identification}
-                    </p>
-                    <p className="text-sm text-stone-600 mt-2">
-                      <strong className="text-green-700">Organic Treatment:</strong> {pest.treatment}
-                    </p>
-                  </div>
-                </div>
-              ))}
-            </div>
+            </form>
           </div>
-        </div>
-      )}
+        </footer>
+      </main>
 
-      {/* AI Garden Report Modal */}
-      {showAIReport && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl w-full max-w-2xl max-h-[85vh] overflow-hidden flex flex-col shadow-2xl animate-in fade-in zoom-in-95 duration-200">
-            <div className="p-4 border-b border-stone-200 flex justify-between items-center bg-green-50">
-              <h2 className="text-lg font-semibold text-green-800 flex items-center gap-2">
-                <Sparkles className="w-5 h-5 text-green-600" />
-                AI Garden Health Report
-              </h2>
-              <button 
-                onClick={() => setShowAIReport(false)} 
-                className="p-1.5 hover:bg-green-200/50 rounded-full text-green-800 transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <div className="p-6 overflow-y-auto flex-1">
-              {isGeneratingReport ? (
-                <div className="flex flex-col items-center justify-center py-12 space-y-4">
-                  <div className="relative">
-                    <div className="w-16 h-16 border-4 border-green-100 border-t-green-600 rounded-full animate-spin"></div>
-                    <Sparkles className="w-6 h-6 text-green-600 absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 animate-pulse" />
-                  </div>
-                  <div className="text-center">
-                    <p className="text-stone-800 font-medium">Analyzing your garden data...</p>
-                    <p className="text-stone-500 text-sm">Consulting with master gardener AI</p>
+      <AnimatePresence>
+        {showTasks && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white w-full max-w-2xl h-[80vh] rounded-3xl shadow-2xl overflow-hidden flex flex-col"
+            >
+              <div className="p-4 border-b border-stone-200 flex justify-between items-center bg-green-50">
+                <div className="flex items-center gap-4">
+                  <h2 className="text-lg font-semibold text-green-800 flex items-center gap-2">
+                    <ListTodo className="w-5 h-5" />
+                    Tasks
+                  </h2>
+                  <div className="flex bg-white rounded-lg p-0.5 border border-green-200">
+                    <button onClick={() => setTaskModalTab('list')} className={`px-3 py-1 text-[10px] uppercase font-bold tracking-wider rounded-md transition-colors ${taskModalTab === 'list' ? 'bg-green-100 text-green-800' : 'text-stone-500 hover:text-stone-700'}`}>List</button>
+                    <button onClick={() => setTaskModalTab('settings')} className={`px-3 py-1 text-[10px] uppercase font-bold tracking-wider rounded-md transition-colors ${taskModalTab === 'settings' ? 'bg-green-100 text-green-800' : 'text-stone-500 hover:text-stone-700'}`}>Settings</button>
                   </div>
                 </div>
-              ) : aiReport ? (
-                <div className="prose prose-stone max-w-none">
-                  <div className="bg-green-50/50 border border-green-100 rounded-2xl p-6 mb-6">
-                    <div className="flex items-center gap-2 mb-4 text-green-800">
-                      <Brain className="w-5 h-5" />
-                      <span className="font-bold uppercase tracking-wider text-xs">Botanica Intelligence Summary</span>
-                    </div>
-                    <div className="markdown-body">
-                      <ReactMarkdown>{aiReport}</ReactMarkdown>
-                    </div>
-                  </div>
-                  <div className="flex justify-center mt-4">
-                    <button
-                      onClick={generateAIReport}
-                      className="text-sm font-medium text-green-700 hover:text-green-800 flex items-center gap-1.5 px-4 py-2 rounded-full hover:bg-green-50 transition-colors"
-                    >
-                      <Repeat className="w-4 h-4" />
-                      Regenerate Report
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div className="text-center py-12">
-                  <p className="text-stone-500">No report generated yet.</p>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* AI Scan Report Modal */}
-      {showScanReport && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl w-full max-w-3xl max-h-[85vh] overflow-hidden flex flex-col shadow-2xl animate-in fade-in zoom-in-95 duration-200">
-            <div className="p-4 border-b border-stone-200 flex justify-between items-center bg-green-50">
-              <h2 className="text-lg font-semibold text-green-800 flex items-center gap-2">
-                <Scan className="w-5 h-5 text-green-600" />
-                AI Scan Report
-              </h2>
-              <button 
-                onClick={() => setShowScanReport(false)} 
-                className="p-1.5 hover:bg-green-200/50 rounded-full text-green-800 transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <div className="p-6 overflow-y-auto flex-1">
-              {isGeneratingScanReport ? (
-                <div className="flex flex-col items-center justify-center py-12 space-y-4">
-                  <div className="relative">
-                    <div className="w-16 h-16 border-4 border-green-100 border-t-green-600 rounded-full animate-spin"></div>
-                    <Scan className="w-6 h-6 text-green-600 absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 animate-pulse" />
-                  </div>
-                  <div className="text-center">
-                    <p className="text-stone-800 font-medium">Analyzing your scan...</p>
-                    <p className="text-stone-500 text-sm">Extracting expert insights from image</p>
-                  </div>
-                </div>
-              ) : scanReport ? (
-                <div className="space-y-6">
-                  {scanImage && (
-                    <div className="flex justify-center">
-                      <img 
-                        src={scanImage} 
-                        alt="Scanned item" 
-                        className="max-h-64 rounded-xl shadow-md border-4 border-white" 
-                        referrerPolicy="no-referrer"
-                      />
-                    </div>
-                  )}
-                  <div className="prose prose-stone max-w-none">
-                    <div className="bg-green-50/50 border border-green-100 rounded-2xl p-6">
-                      <div className="flex items-center gap-2 mb-4 text-green-800">
-                        <Brain className="w-5 h-5" />
-                        <span className="font-bold uppercase tracking-wider text-xs">Botanica Scan Analysis</span>
-                      </div>
-                      <div className="markdown-body">
-                        <ReactMarkdown>{scanReport}</ReactMarkdown>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex justify-center gap-4">
-                    <button
-                      onClick={() => scanFileInputRef.current?.click()}
-                      className="text-sm font-medium text-green-700 hover:text-green-800 flex items-center gap-1.5 px-4 py-2 rounded-full hover:bg-green-50 transition-colors"
-                    >
-                      <Repeat className="w-4 h-4" />
-                      Scan New Item
-                    </button>
-                    <button
-                      onClick={() => {
-                        setShowScanReport(false);
-                        setIsChatOpen(true);
-                        handleSubmit(undefined, "Tell me more about this scan.", scanImage || undefined);
-                      }}
-                      className="text-sm font-medium text-white bg-green-600 hover:bg-green-700 flex items-center gap-1.5 px-4 py-2 rounded-full transition-colors shadow-sm"
-                    >
-                      <MessageSquare className="w-4 h-4" />
-                      Ask Follow-up
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div className="text-center py-12">
-                  <p className="text-stone-500">No scan report generated yet.</p>
-                  <button
-                    onClick={() => scanFileInputRef.current?.click()}
-                    className="mt-4 bg-green-600 text-white px-6 py-2 rounded-full hover:bg-green-700 transition-colors"
-                  >
-                    Upload Image to Scan
+                <div className="flex items-center gap-2">
+                  <button onClick={requestNotificationPermission} className="p-1.5 hover:bg-green-200/50 rounded-full transition-colors">
+                    {notificationPermission === 'granted' ? <BellRing className="w-5 h-5 text-green-600" /> : <Bell className="w-5 h-5 text-stone-500" />}
                   </button>
+                  <button onClick={() => setShowTasks(false)} className="p-1.5 hover:bg-green-200/50 rounded-full text-green-800 transition-colors"><X className="w-5 h-5" /></button>
                 </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Disease Guide Modal */}
-      {showDiseaseGuide && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl w-full max-w-3xl max-h-[85vh] overflow-hidden flex flex-col shadow-2xl animate-in fade-in zoom-in-95 duration-200">
-            <div className="p-4 border-b border-stone-200 flex justify-between items-center bg-green-50">
-              <div className="flex items-center gap-3">
-                <h2 className="text-lg font-semibold text-green-800 flex items-center gap-2">
-                  <Activity className="w-5 h-5" />
-                  Plant Disease Progression Guide
-                </h2>
-                <button
-                  onClick={() => {
-                    setShowDiseaseGuide(false);
-                    setIsChatOpen(true);
-                    setInput("I need help diagnosing a plant disease. Can you help me?");
-                    fileInputRef.current?.click();
-                  }}
-                  className="flex items-center gap-1.5 text-xs font-bold bg-green-600 text-white px-3 py-1.5 rounded-full hover:bg-green-500 transition-all shadow-sm"
-                >
-                  <Sparkles className="w-3.5 h-3.5" />
-                  AI Diagnosis
-                </button>
               </div>
-              <button 
-                onClick={() => setShowDiseaseGuide(false)} 
-                className="p-1.5 hover:bg-green-200/50 rounded-full text-green-800 transition-colors"
-                title="Close"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <div className="p-4 overflow-y-auto flex-1 space-y-6">
-              {DISEASE_GUIDE.map((disease, index) => (
-                <div key={index} className="flex flex-col gap-4 bg-stone-50 p-5 rounded-xl border border-stone-100">
-                  <div className="flex flex-col sm:flex-row gap-4">
-                    <img 
-                      src={disease.image} 
-                      alt={disease.name} 
-                      className="w-full sm:w-48 h-36 object-cover rounded-lg shrink-0 shadow-sm" 
-                      referrerPolicy="no-referrer" 
-                    />
-                    <div>
-                      <h3 className="font-bold text-xl text-stone-800">{disease.name}</h3>
-                      <div className="mt-3 space-y-2">
-                        <p className="text-sm text-stone-600">
-                          <strong className="text-green-700">Prevention:</strong> {disease.prevention}
-                        </p>
-                        <p className="text-sm text-stone-600">
-                          <strong className="text-green-700">Organic Treatment:</strong> {disease.treatment}
-                        </p>
+
+              <div className="p-4 overflow-y-auto flex-1">
+                {taskModalTab === 'settings' ? (
+                  <div className="space-y-6">
+                    <div className="bg-stone-50 p-4 rounded-xl border border-stone-200">
+                      <h3 className="text-sm font-bold text-stone-800 flex items-center gap-2 mb-4"><BellRing className="w-4 h-4 text-green-600" />Global Notification Settings</h3>
+                      <div className="space-y-4">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-stone-700">Enable Notifications</span>
+                          <button onClick={() => setNotificationSettings(prev => ({ ...prev, enabled: !prev.enabled }))} className={`w-10 h-5 rounded-full transition-colors relative ${notificationSettings.enabled ? 'bg-green-600' : 'bg-stone-300'}`}>
+                            <div className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all ${notificationSettings.enabled ? 'left-6' : 'left-1'}`} />
+                          </button>
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-xs font-bold text-stone-500 uppercase">Default Reminder Time</label>
+                          <select value={notificationSettings.defaultReminderMinutes} onChange={(e) => setNotificationSettings(prev => ({ ...prev, defaultReminderMinutes: Number(e.target.value) }))} className="w-full bg-white border border-stone-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-green-500">
+                            <option value={0}>At time of event</option>
+                            <option value={15}>15 minutes before</option>
+                            <option value={30}>30 minutes before</option>
+                            <option value={60}>1 hour before</option>
+                            <option value={1440}>1 day before</option>
+                          </select>
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-xs font-bold text-stone-500 uppercase">Notification Sound</label>
+                          <select value={notificationSettings.sound} onChange={(e) => setNotificationSettings(prev => ({ ...prev, sound: e.target.value }))} className="w-full bg-white border border-stone-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-green-500">
+                            <option value="none">None (Silent)</option>
+                            <option value="chime">Garden Chime</option>
+                            <option value="bird">Morning Bird</option>
+                            <option value="water">Soft Water</option>
+                          </select>
+                        </div>
                       </div>
                     </div>
                   </div>
-                  
-                  {/* Timeline */}
-                  <div className="mt-2 pt-4 border-t border-stone-200">
-                    <h4 className="text-sm font-bold text-stone-800 mb-3">Progression Timeline</h4>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                      {disease.progression.map((stage, sIdx) => (
-                        <div key={sIdx} className="bg-white p-3 rounded-lg border border-stone-200 shadow-sm relative">
-                          <div className="text-xs font-bold text-green-700 uppercase tracking-wider mb-1">{stage.stage} Stage</div>
-                          <p className="text-xs text-stone-600">{stage.description}</p>
-                          {sIdx < disease.progression.length - 1 && (
-                            <div className="hidden sm:block absolute top-1/2 -right-3 transform -translate-y-1/2 text-stone-300 z-10">
-                              <ArrowRight className="w-4 h-4" />
-                            </div>
-                          )}
-                        </div>
+                ) : (
+                  <>
+                    <div className="flex items-center gap-2 mb-4 overflow-x-auto no-scrollbar pb-1">
+                      <span className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mr-2">Sort:</span>
+                      {['date', 'plant', 'category'].map(sort => (
+                        <button key={sort} onClick={() => setTaskSortBy(sort as any)} className={`px-3 py-1 text-xs font-medium rounded-full transition-colors whitespace-nowrap ${taskSortBy === sort ? 'bg-green-600 text-white' : 'bg-stone-100 text-stone-600 hover:bg-stone-200'}`}>{sort.charAt(0).toUpperCase() + sort.slice(1)}</button>
                       ))}
                     </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Tasks Modal */}
-      {showTasks && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl w-full max-w-md max-h-[85vh] overflow-hidden flex flex-col shadow-2xl animate-in fade-in zoom-in-95 duration-200">
-            <div className="p-4 border-b border-stone-200 flex justify-between items-center bg-green-50">
-              <div className="flex items-center gap-4">
-                <h2 className="text-lg font-semibold text-green-800 flex items-center gap-2">
-                  <ListTodo className="w-5 h-5" />
-                  Tasks
-                </h2>
-                <div className="flex bg-white rounded-lg p-0.5 border border-green-200">
-                  <button 
-                    onClick={() => setTaskSortBy('date')}
-                    className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${taskSortBy === 'date' ? 'bg-green-100 text-green-800' : 'text-stone-500 hover:text-stone-700'}`}
-                  >
-                    By Date
-                  </button>
-                  <button 
-                    onClick={() => setTaskSortBy('plant')}
-                    className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${taskSortBy === 'plant' ? 'bg-green-100 text-green-800' : 'text-stone-500 hover:text-stone-700'}`}
-                  >
-                    By Plant
-                  </button>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={testNotification}
-                  className="p-1.5 hover:bg-green-200/50 rounded-full transition-colors text-stone-500"
-                  title="Test notification"
-                >
-                  <Activity className="w-5 h-5" />
-                </button>
-                <button
-                  onClick={requestNotificationPermission}
-                  className="p-1.5 hover:bg-green-200/50 rounded-full transition-colors"
-                  title={notificationPermission === 'granted' ? 'Notifications enabled' : 'Enable notifications'}
-                >
-                  {notificationPermission === 'granted' ? (
-                    <BellRing className="w-5 h-5 text-green-600" />
-                  ) : notificationPermission === 'denied' ? (
-                    <BellOff className="w-5 h-5 text-red-400" />
-                  ) : (
-                    <Bell className="w-5 h-5 text-stone-500" />
-                  )}
-                </button>
-                <button 
-                  onClick={() => setShowTasks(false)} 
-                  className="p-1.5 hover:bg-green-200/50 rounded-full text-green-800 transition-colors"
-                  title="Close"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-            </div>
-            <div className="p-4 overflow-y-auto flex-1">
-              {tasks.length === 0 ? (
-                <div className="text-center py-8 text-stone-500">
-                  <ListTodo className="w-12 h-12 mx-auto mb-3 text-stone-300" />
-                  <p>No tasks yet. Add one below!</p>
-                </div>
-              ) : (
-                <div className="space-y-6">
-                  {Object.entries(getGroupedTasks()).map(([groupName, groupTasks]) => {
-                    if (groupTasks.length === 0) return null;
-                    return (
-                      <div key={groupName}>
-                        <h3 className={`text-xs font-bold uppercase tracking-wider mb-3 ${groupName === 'Overdue' ? 'text-red-600 flex items-center gap-1' : 'text-stone-500'}`}>
-                          {groupName === 'Overdue' && <AlertCircle className="w-4 h-4" />}
-                          {groupName}
-                        </h3>
-                        <ul className="space-y-2">
-                          {groupTasks.map(task => {
-                            const isOverdue = task.dueDate && new Date(task.dueDate) < new Date(new Date().setHours(0,0,0,0)) && !task.completed;
-                            return (
-                              <li 
-                                key={task.id} 
-                                className={`flex items-center justify-between p-3 rounded-xl border transition-all ${
-                                  task.completed ? 'bg-stone-50 border-stone-100 opacity-75' : 
-                                  isOverdue ? 'bg-red-50 border-red-200 shadow-sm' : 
-                                  'bg-white border-stone-200 shadow-sm'
-                                }`}
-                              >
-                                <button 
-                                  onClick={() => toggleTask(task.id)}
-                                  className="flex items-center gap-3 flex-1 text-left"
-                                >
-                                  {task.completed ? (
-                                    <CheckSquare className="w-5 h-5 text-green-600 shrink-0" />
-                                  ) : (
-                                    <Square className={`w-5 h-5 shrink-0 ${isOverdue ? 'text-red-400' : 'text-stone-400'}`} />
-                                  )}
-                                  <div className="flex flex-col text-left">
-                                    <span className={`text-sm font-medium ${task.completed ? 'line-through text-stone-400' : isOverdue ? 'text-red-900' : 'text-stone-800'}`}>
-                                      {task.text}
-                                    </span>
-                                    <div className="flex flex-wrap gap-3 mt-1">
-                                      {task.plantName && (
-                                        <span className={`text-xs flex items-center gap-1 ${task.completed ? 'text-stone-400' : 'text-stone-500'}`}>
-                                          <Leaf className="w-3 h-3" />
-                                          {task.plantName}
-                                        </span>
-                                      )}
-                                      {task.dueDate && (
-                                        <span className={`text-xs flex items-center gap-1 ${task.completed ? 'text-stone-400' : isOverdue ? 'text-red-600 font-bold' : 'text-stone-500'}`}>
-                                          <Calendar className="w-3 h-3" />
-                                          {new Date(task.dueDate).toLocaleDateString()}
-                                        </span>
-                                      )}
-                                      {task.frequency && task.frequency !== 'none' && (
-                                        <span className={`text-xs flex items-center gap-1 ${task.completed ? 'text-stone-400' : 'text-green-600'}`}>
-                                          <Repeat className="w-3 h-3" />
-                                          <span className="capitalize">{task.frequency}</span>
-                                        </span>
-                                      )}
-                                    </div>
-                                  </div>
-                                </button>
-                                <button 
-                                  onClick={() => deleteTask(task.id)}
-                                  className={`p-1.5 rounded-lg transition-colors ml-2 ${isOverdue ? 'text-red-400 hover:text-red-600 hover:bg-red-100' : 'text-stone-400 hover:text-red-500 hover:bg-red-50'}`}
-                                  title="Delete task"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
-                              </li>
-                            );
-                          })}
-                        </ul>
+                    <div className="mb-6 space-y-3">
+                      <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
+                        {['all', 'incomplete', 'completed'].map(status => (
+                          <button key={status} onClick={() => setTaskFilterStatus(status as any)} className={`px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${taskFilterStatus === status ? 'bg-green-600 text-white' : 'bg-stone-100 text-stone-600 hover:bg-stone-200'}`}>{status.charAt(0).toUpperCase() + status.slice(1)}</button>
+                        ))}
                       </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-            <div className="p-4 border-t border-stone-200 bg-stone-50">
-              <form onSubmit={addTask} className="flex flex-col gap-3">
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={newTaskText}
-                    onChange={(e) => setNewTaskText(e.target.value)}
-                    placeholder="Add a new task (e.g., Water)..."
-                    className="flex-[2] px-4 py-2 rounded-xl border border-stone-200 focus:outline-none focus:ring-2 focus:ring-green-500/50 focus:border-green-500 text-sm"
-                  />
-                  <input
-                    type="text"
-                    value={newTaskPlant}
-                    onChange={(e) => setNewTaskPlant(e.target.value)}
-                    placeholder="Plant (optional)"
-                    className="flex-1 px-4 py-2 rounded-xl border border-stone-200 focus:outline-none focus:ring-2 focus:ring-green-500/50 focus:border-green-500 text-sm"
-                  />
-                </div>
-                <div className="flex gap-2">
-                  <input
-                    type="date"
-                    value={newTaskDueDate}
-                    onChange={(e) => setNewTaskDueDate(e.target.value)}
-                    className="flex-1 px-3 py-2 rounded-xl border border-stone-200 focus:outline-none focus:ring-2 focus:ring-green-500/50 focus:border-green-500 text-sm text-stone-600"
-                  />
-                  <select
-                    value={newTaskFrequency}
-                    onChange={(e) => setNewTaskFrequency(e.target.value as any)}
-                    className="flex-1 px-3 py-2 rounded-xl border border-stone-200 focus:outline-none focus:ring-2 focus:ring-green-500/50 focus:border-green-500 text-sm text-stone-600 bg-white"
-                  >
-                    <option value="none">No repeat</option>
-                    <option value="daily">Daily</option>
-                    <option value="weekly">Weekly</option>
-                    <option value="biweekly">Bi-weekly</option>
-                    <option value="monthly">Monthly</option>
-                  </select>
-                  <button
-                    type="submit"
-                    disabled={!newTaskText.trim()}
-                    className="bg-green-600 text-white px-4 py-2 rounded-xl hover:bg-green-700 disabled:opacity-50 disabled:hover:bg-green-600 transition-colors flex items-center justify-center"
-                  >
-                    <Plus className="w-5 h-5" />
-                  </button>
-                </div>
-              </form>
-            </div>
+                      <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
+                        <span className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mr-2">Category:</span>
+                        <button 
+                          onClick={() => setTaskFilterCategory('all')} 
+                          className={`px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${taskFilterCategory === 'all' ? 'bg-green-600 text-white' : 'bg-stone-100 text-stone-600 hover:bg-stone-200'}`}
+                        >
+                          All
+                        </button>
+                        {CATEGORIES.map(cat => (
+                          <button 
+                            key={cat} 
+                            onClick={() => setTaskFilterCategory(cat)} 
+                            className={`px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${taskFilterCategory === cat ? 'bg-green-600 text-white' : 'bg-stone-100 text-stone-600 hover:bg-stone-200'}`}
+                          >
+                            {cat}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {tasks.length === 0 ? (
+                      <div className="text-center py-8 text-stone-500">
+                        <ListTodo className="w-12 h-12 mx-auto mb-3 text-stone-300" />
+                        <p>No tasks yet. Add one below!</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-6">
+                        {Object.entries(getGroupedTasks()).map(([groupName, groupTasks]) => (
+                          <div key={groupName}>
+                            <h3 className={`text-xs font-bold uppercase tracking-wider mb-3 ${groupName === 'Overdue' ? 'text-red-600 flex items-center gap-1' : 'text-stone-500'}`}>
+                              {groupName === 'Overdue' && <AlertCircle className="w-4 h-4" />}
+                              {groupName}
+                            </h3>
+                            <ul className="space-y-2">
+                              {groupTasks.map(task => (
+                                <li key={task.id} className={`flex items-center justify-between p-3 rounded-xl border transition-all ${task.completed ? 'bg-stone-50 border-stone-100 opacity-75' : 'bg-white border-stone-200 shadow-sm'}`}>
+                                  <button onClick={() => toggleTask(task.id)} className="flex items-center gap-3 flex-1 text-left">
+                                    {task.completed ? <CheckSquare className="w-5 h-5 text-green-600 shrink-0" /> : <Square className="w-5 h-5 text-stone-400 shrink-0" />}
+                                    <div className="flex flex-col">
+                                      <span className={`text-sm font-medium ${task.completed ? 'line-through text-stone-400' : 'text-stone-800'}`}>{task.text}</span>
+                                      <div className="flex flex-wrap gap-2 mt-1">
+                                        {task.plantName && <span className="text-[10px] flex items-center gap-1 text-stone-500"><Leaf className="w-3 h-3" />{task.plantName}</span>}
+                                        {task.category && <span className="text-[10px] flex items-center gap-1 text-blue-600"><Tag className="w-3 h-3" />{task.category}</span>}
+                                        {task.dueDate && <span className="text-[10px] flex items-center gap-1 text-stone-500"><Calendar className="w-3 h-3" />{task.dueDate} {task.dueTime}</span>}
+                                      </div>
+                                    </div>
+                                  </button>
+                                  <div className="flex items-center gap-1">
+                                    <button onClick={(e) => { e.stopPropagation(); toggleTask(task.id); }} className={`p-1.5 rounded-lg transition-colors ${task.notificationsEnabled !== false ? 'text-green-600 hover:bg-green-50' : 'text-stone-300 hover:bg-stone-100'}`}>
+                                      {task.notificationsEnabled !== false ? <BellRing className="w-4 h-4" /> : <BellOff className="w-4 h-4" />}
+                                    </button>
+                                    <button onClick={() => deleteTask(task.id)} className="p-1.5 text-stone-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"><Trash2 className="w-4 h-4" /></button>
+                                  </div>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+
+              <div className="p-4 border-t border-stone-200 bg-stone-50">
+                <form onSubmit={addTask} className="space-y-3">
+                  <div className="flex gap-2">
+                    <input type="text" value={newTaskText} onChange={(e) => setNewTaskText(e.target.value)} placeholder="Add a new task..." className="flex-[2] px-4 py-2 rounded-xl border border-stone-200 focus:outline-none focus:ring-2 focus:ring-green-500/50 text-sm" />
+                    <input type="text" value={newTaskPlant} onChange={(e) => setNewTaskPlant(e.target.value)} placeholder="Plant" className="flex-1 px-4 py-2 rounded-xl border border-stone-200 focus:outline-none focus:ring-2 focus:ring-green-500/50 text-sm" />
+                  </div>
+                  <div className="flex gap-2">
+                    <input type="date" value={newTaskDueDate} onChange={(e) => setNewTaskDueDate(e.target.value)} className="flex-1 px-3 py-2 rounded-xl border border-stone-200 text-sm text-stone-600" />
+                    <input type="time" value={newTaskDueTime} onChange={(e) => setNewTaskDueTime(e.target.value)} className="flex-1 px-3 py-2 rounded-xl border border-stone-200 text-sm text-stone-600" />
+                    <select value={newTaskCategory} onChange={(e) => setNewTaskCategory(e.target.value)} className="flex-1 px-3 py-2 rounded-xl border border-stone-200 text-sm text-stone-600 bg-white">
+                      <option value="">Category</option>
+                      {CATEGORIES.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                    </select>
+                  </div>
+                  <div className="flex gap-2">
+                    <select value={newTaskReminderMinutes} onChange={(e) => setNewTaskReminderMinutes(Number(e.target.value))} className="flex-1 px-3 py-2 rounded-xl border border-stone-200 text-sm text-stone-600 bg-white">
+                      <option value={0}>At time</option>
+                      <option value={15}>15m before</option>
+                      <option value={30}>30m before</option>
+                      <option value={60}>1h before</option>
+                    </select>
+                    <button type="submit" disabled={!newTaskText.trim()} className="bg-green-600 text-white px-8 py-2 rounded-xl hover:bg-green-700 disabled:opacity-50 transition-colors flex items-center justify-center font-bold">
+                      <Plus className="w-5 h-5 mr-2" /> Add Task
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </motion.div>
           </div>
-        </div>
-      )}
+        )}
+      </AnimatePresence>
+
       <Toaster position="top-center" richColors />
     </div>
   );

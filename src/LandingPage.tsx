@@ -7,6 +7,8 @@ interface LandingPageProps {
   onOpenDiseaseGuide: () => void;
   onOpenPestGuide: () => void;
   onOpenScanReport: () => void;
+  detailLevel: 'Brief' | 'Detailed' | 'Expert';
+  onDetailLevelChange: (level: 'Brief' | 'Detailed' | 'Expert') => void;
 }
 
 const FAQS = [
@@ -49,7 +51,15 @@ const SHOWCASE_PLANTS = [
   }
 ];
 
-export default function LandingPage({ onStartChat, onOpenTasks, onOpenDiseaseGuide, onOpenPestGuide, onOpenScanReport }: LandingPageProps) {
+export default function LandingPage({ 
+  onStartChat, 
+  onOpenTasks, 
+  onOpenDiseaseGuide, 
+  onOpenPestGuide, 
+  onOpenScanReport,
+  detailLevel,
+  onDetailLevelChange
+}: LandingPageProps) {
   const [openFaq, setOpenFaq] = useState<number | null>(null);
 
   const handleShare = async (platform: string) => {
@@ -97,6 +107,21 @@ export default function LandingPage({ onStartChat, onOpenTasks, onOpenDiseaseGui
             <h1 className="text-xl font-semibold tracking-tight">Botanica</h1>
           </div>
           <div className="flex items-center gap-2">
+            <div className="hidden lg:flex items-center bg-green-800/50 rounded-full p-1 border border-green-700/50 mr-2">
+              {(['Brief', 'Detailed', 'Expert'] as const).map((level) => (
+                <button
+                  key={level}
+                  onClick={() => onDetailLevelChange(level)}
+                  className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all ${
+                    detailLevel === level
+                      ? 'bg-green-100 text-green-900 shadow-sm'
+                      : 'text-green-200 hover:text-white'
+                  }`}
+                >
+                  {level}
+                </button>
+              ))}
+            </div>
             <button
               onClick={onOpenScanReport}
               className="hidden sm:flex items-center gap-2 text-sm font-medium text-green-100 hover:text-white px-4 py-2 rounded-full border border-green-700 hover:bg-green-800 transition-colors"
