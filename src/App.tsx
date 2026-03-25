@@ -10,6 +10,7 @@ import LandingPage from './LandingPage';
 import { auth, db, googleProvider } from './firebase';
 import { signInWithPopup, signOut, onAuthStateChanged, User } from 'firebase/auth';
 import { collection, doc, onSnapshot, setDoc, deleteDoc } from 'firebase/firestore';
+import { Toaster, toast } from 'sonner';
 
 enum OperationType {
   CREATE = 'create',
@@ -203,8 +204,20 @@ export default function App() {
 
   useEffect(() => {
     if (!isAuthReady) return;
+    
     if (!user) {
-      setTasks([]);
+      // Load from local storage if not logged in
+      const localTasks = localStorage.getItem('botanica_tasks');
+      if (localTasks) {
+        try {
+          setTasks(JSON.parse(localTasks));
+        } catch (e) {
+          console.error('Error parsing local tasks:', e);
+          setTasks([]);
+        }
+      } else {
+        setTasks([]);
+      }
       return;
     }
 
@@ -222,6 +235,13 @@ export default function App() {
     return () => unsubscribe();
   }, [user, isAuthReady]);
 
+  // Sync tasks to local storage if not logged in
+  useEffect(() => {
+    if (!user && isAuthReady) {
+      localStorage.setItem('botanica_tasks', JSON.stringify(tasks));
+    }
+  }, [tasks, user, isAuthReady]);
+
   const tasksRef = useRef(tasks);
   useEffect(() => {
     tasksRef.current = tasks;
@@ -229,19 +249,30 @@ export default function App() {
 
   useEffect(() => {
     const checkTasks = () => {
-      if (!('Notification' in window) || Notification.permission !== 'granted') return;
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const todayStr = today.toISOString().split('T')[0];
       
-      const todayStr = new Date().toISOString().split('T')[0];
       let updated = false;
       const currentTasks = tasksRef.current;
       
       const newTasks = currentTasks.map(task => {
         if (!task.completed && task.dueDate) {
-          const taskDateStr = new Date(task.dueDate).toISOString().split('T')[0];
+          const taskDateStr = task.dueDate; // Already YYYY-MM-DD
           if (taskDateStr <= todayStr && task.lastNotified !== todayStr) {
-            new Notification('Botanica Reminder 🌱', {
-              body: `Time to: ${task.text} ${task.plantName ? `for your ${task.plantName}` : ''}`,
+            const message = `Time to: ${task.text} ${task.plantName ? `for your ${task.plantName}` : ''}`;
+            
+            // Native Notification
+            if ('Notification' in window && Notification.permission === 'granted') {
+              new Notification('Botanica Reminder 🌱', { body: message });
+            }
+            
+            // In-app Toast (Fallback/Addition)
+            toast.success('Botanica Reminder 🌱', {
+              description: message,
+              duration: 10000,
             });
+
             updated = true;
             return { ...task, lastNotified: todayStr };
           }
@@ -369,11 +400,37 @@ export default function App() {
 
   const requestNotificationPermission = async () => {
     if (!('Notification' in window)) {
-      alert('This browser does not support desktop notification');
+      toast.error('Notifications not supported', {
+        description: 'This browser does not support desktop notifications.'
+      });
       return;
     }
     const permission = await Notification.requestPermission();
     setNotificationPermission(permission);
+    if (permission === 'granted') {
+      toast.success('Notifications enabled!', {
+        description: 'You will now receive alerts for your gardening tasks.'
+      });
+    } else if (permission === 'denied') {
+      toast.error('Notifications blocked', {
+        description: 'Please enable notifications in your browser settings to receive alerts.'
+      });
+    }
+  };
+
+  const testNotification = () => {
+    const message = "Testing Botanica notifications! Alerts are working correctly.";
+    
+    // Test Native
+    if ('Notification' in window && Notification.permission === 'granted') {
+      new Notification('Botanica Test 🌱', { body: message });
+    }
+    
+    // Test Toast
+    toast.success('Botanica Test 🌱', {
+      description: message,
+      duration: 5000,
+    });
   };
 
   const scrollToBottom = () => {
@@ -402,11 +459,7 @@ export default function App() {
   const addTask = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTaskText.trim()) return;
-    if (!user) {
-      alert("Please log in to save tasks.");
-      return;
-    }
-
+    
     const newTask: Task = { 
       id: Date.now().toString(), 
       text: newTaskText.trim(), 
@@ -416,11 +469,15 @@ export default function App() {
       plantName: newTaskPlant.trim() || undefined
     };
 
-    const path = `users/${user.uid}/tasks/${newTask.id}`;
-    try {
-      await setDoc(doc(db, 'users', user.uid, 'tasks', newTask.id), newTask);
-    } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, path);
+    if (user) {
+      const path = `users/${user.uid}/tasks/${newTask.id}`;
+      try {
+        await setDoc(doc(db, 'users', user.uid, 'tasks', newTask.id), newTask);
+      } catch (error) {
+        handleFirestoreError(error, OperationType.CREATE, path);
+      }
+    } else {
+      setTasks(prev => [...prev, newTask]);
     }
 
     setNewTaskText('');
@@ -430,12 +487,10 @@ export default function App() {
   };
 
   const toggleTask = async (id: string) => {
-    if (!user) return;
     const task = tasks.find(t => t.id === id);
     if (!task) return;
 
     let updatedTask = { ...task, completed: !task.completed };
-    const path = `users/${user.uid}/tasks/${id}`;
 
     // Handle recurring tasks
     if (updatedTask.completed && task.frequency && task.frequency !== 'none' && task.dueDate) {
@@ -457,27 +512,39 @@ export default function App() {
         lastNotified: undefined
       };
       
-      try {
-        await setDoc(doc(db, 'users', user.uid, 'tasks', nextTask.id), nextTask);
-      } catch (error) {
-        handleFirestoreError(error, OperationType.CREATE, `users/${user.uid}/tasks/${nextTask.id}`);
+      if (user) {
+        try {
+          await setDoc(doc(db, 'users', user.uid, 'tasks', nextTask.id), nextTask);
+        } catch (error) {
+          handleFirestoreError(error, OperationType.CREATE, `users/${user.uid}/tasks/${nextTask.id}`);
+        }
+      } else {
+        setTasks(prev => [...prev, nextTask]);
       }
     }
 
-    try {
-      await setDoc(doc(db, 'users', user.uid, 'tasks', id), updatedTask);
-    } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, path);
+    if (user) {
+      const path = `users/${user.uid}/tasks/${id}`;
+      try {
+        await setDoc(doc(db, 'users', user.uid, 'tasks', id), updatedTask);
+      } catch (error) {
+        handleFirestoreError(error, OperationType.UPDATE, path);
+      }
+    } else {
+      setTasks(prev => prev.map(t => t.id === id ? updatedTask : t));
     }
   };
 
   const deleteTask = async (id: string) => {
-    if (!user) return;
-    const path = `users/${user.uid}/tasks/${id}`;
-    try {
-      await deleteDoc(doc(db, 'users', user.uid, 'tasks', id));
-    } catch (error) {
-      handleFirestoreError(error, OperationType.DELETE, path);
+    if (user) {
+      const path = `users/${user.uid}/tasks/${id}`;
+      try {
+        await deleteDoc(doc(db, 'users', user.uid, 'tasks', id));
+      } catch (error) {
+        handleFirestoreError(error, OperationType.DELETE, path);
+      }
+    } else {
+      setTasks(prev => prev.filter(t => t.id !== id));
     }
   };
 
@@ -486,10 +553,11 @@ export default function App() {
   };
 
   const getGroupedTasks = () => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayStr = today.toISOString().split('T')[0];
+
     if (taskSortBy === 'date') {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      
       const groups: Record<string, Task[]> = {
         'Overdue': [],
         'Today': [],
@@ -504,29 +572,56 @@ export default function App() {
         } else if (!task.dueDate) {
           groups['No Date'].push(task);
         } else {
-          const taskDate = new Date(task.dueDate);
-          taskDate.setHours(0, 0, 0, 0);
-          if (taskDate < today) {
+          const taskDateStr = task.dueDate; // YYYY-MM-DD
+          if (taskDateStr < todayStr) {
             groups['Overdue'].push(task);
-          } else if (taskDate.getTime() === today.getTime()) {
+          } else if (taskDateStr === todayStr) {
             groups['Today'].push(task);
           } else {
             groups['Upcoming'].push(task);
           }
         }
       });
+
+      // Sort chronologically within groups
+      groups['Overdue'].sort((a, b) => (a.dueDate || '').localeCompare(b.dueDate || ''));
+      groups['Upcoming'].sort((a, b) => (a.dueDate || '').localeCompare(b.dueDate || ''));
+      
       return groups;
     } else {
       const groups: Record<string, Task[]> = {};
       tasks.forEach(task => {
-        const plant = task.plantName || 'General';
-        if (!groups[plant]) groups[plant] = [];
-        groups[plant].push(task);
+        // Case-insensitive grouping by plant name
+        const rawPlant = task.plantName?.trim() || 'General';
+        const plantKey = rawPlant.charAt(0).toUpperCase() + rawPlant.slice(1).toLowerCase();
+        
+        if (!groups[plantKey]) groups[plantKey] = [];
+        groups[plantKey].push(task);
       });
+
+      // Sort within plant groups: Incomplete first, then by date
       Object.keys(groups).forEach(key => {
-        groups[key].sort((a, b) => (a.completed === b.completed ? 0 : a.completed ? 1 : -1));
+        groups[key].sort((a, b) => {
+          if (a.completed !== b.completed) return a.completed ? 1 : -1;
+          const dateA = a.dueDate || '9999-12-31';
+          const dateB = b.dueDate || '9999-12-31';
+          return dateA.localeCompare(dateB);
+        });
       });
-      return groups;
+
+      // Sort the groups themselves alphabetically, but keep 'General' at the top or bottom
+      const sortedKeys = Object.keys(groups).sort((a, b) => {
+        if (a === 'General') return -1;
+        if (b === 'General') return 1;
+        return a.localeCompare(b);
+      });
+
+      const sortedGroups: Record<string, Task[]> = {};
+      sortedKeys.forEach(key => {
+        sortedGroups[key] = groups[key];
+      });
+
+      return sortedGroups;
     }
   };
 
@@ -1045,6 +1140,13 @@ export default function App() {
               </div>
               <div className="flex items-center gap-2">
                 <button
+                  onClick={testNotification}
+                  className="p-1.5 hover:bg-green-200/50 rounded-full transition-colors text-stone-500"
+                  title="Test notification"
+                >
+                  <Activity className="w-5 h-5" />
+                </button>
+                <button
                   onClick={requestNotificationPermission}
                   className="p-1.5 hover:bg-green-200/50 rounded-full transition-colors"
                   title={notificationPermission === 'granted' ? 'Notifications enabled' : 'Enable notifications'}
@@ -1067,17 +1169,7 @@ export default function App() {
               </div>
             </div>
             <div className="p-4 overflow-y-auto flex-1">
-              {!user ? (
-                <div className="flex flex-col items-center justify-center h-full text-center space-y-4 py-8">
-                  <div className="w-16 h-16 bg-stone-100 rounded-full flex items-center justify-center">
-                    <Lock className="w-8 h-8 text-stone-400" />
-                  </div>
-                  <div>
-                    <h3 className="text-lg font-semibold text-stone-800">Sign in required</h3>
-                    <p className="text-sm text-stone-500 mt-1 max-w-xs">The tasks feature requires an account, but sign-in is currently disabled.</p>
-                  </div>
-                </div>
-              ) : tasks.length === 0 ? (
+              {tasks.length === 0 ? (
                 <div className="text-center py-8 text-stone-500">
                   <ListTodo className="w-12 h-12 mx-auto mb-3 text-stone-300" />
                   <p>No tasks yet. Add one below!</p>
@@ -1156,57 +1248,56 @@ export default function App() {
                 </div>
               )}
             </div>
-            {user && (
-              <div className="p-4 border-t border-stone-200 bg-stone-50">
-                <form onSubmit={addTask} className="flex flex-col gap-3">
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={newTaskText}
-                      onChange={(e) => setNewTaskText(e.target.value)}
-                      placeholder="Add a new task (e.g., Water)..."
-                      className="flex-[2] px-4 py-2 rounded-xl border border-stone-200 focus:outline-none focus:ring-2 focus:ring-green-500/50 focus:border-green-500 text-sm"
-                    />
-                    <input
-                      type="text"
-                      value={newTaskPlant}
-                      onChange={(e) => setNewTaskPlant(e.target.value)}
-                      placeholder="Plant (optional)"
-                      className="flex-1 px-4 py-2 rounded-xl border border-stone-200 focus:outline-none focus:ring-2 focus:ring-green-500/50 focus:border-green-500 text-sm"
-                    />
-                  </div>
-                  <div className="flex gap-2">
-                    <input
-                      type="date"
-                      value={newTaskDueDate}
-                      onChange={(e) => setNewTaskDueDate(e.target.value)}
-                      className="flex-1 px-3 py-2 rounded-xl border border-stone-200 focus:outline-none focus:ring-2 focus:ring-green-500/50 focus:border-green-500 text-sm text-stone-600"
-                    />
-                    <select
-                      value={newTaskFrequency}
-                      onChange={(e) => setNewTaskFrequency(e.target.value as any)}
-                      className="flex-1 px-3 py-2 rounded-xl border border-stone-200 focus:outline-none focus:ring-2 focus:ring-green-500/50 focus:border-green-500 text-sm text-stone-600 bg-white"
-                    >
-                      <option value="none">No repeat</option>
-                      <option value="daily">Daily</option>
-                      <option value="weekly">Weekly</option>
-                      <option value="biweekly">Bi-weekly</option>
-                      <option value="monthly">Monthly</option>
-                    </select>
-                    <button
-                      type="submit"
-                      disabled={!newTaskText.trim()}
-                      className="bg-green-600 text-white px-4 py-2 rounded-xl hover:bg-green-700 disabled:opacity-50 disabled:hover:bg-green-600 transition-colors flex items-center justify-center"
-                    >
-                      <Plus className="w-5 h-5" />
-                    </button>
-                  </div>
-                </form>
-              </div>
-            )}
+            <div className="p-4 border-t border-stone-200 bg-stone-50">
+              <form onSubmit={addTask} className="flex flex-col gap-3">
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={newTaskText}
+                    onChange={(e) => setNewTaskText(e.target.value)}
+                    placeholder="Add a new task (e.g., Water)..."
+                    className="flex-[2] px-4 py-2 rounded-xl border border-stone-200 focus:outline-none focus:ring-2 focus:ring-green-500/50 focus:border-green-500 text-sm"
+                  />
+                  <input
+                    type="text"
+                    value={newTaskPlant}
+                    onChange={(e) => setNewTaskPlant(e.target.value)}
+                    placeholder="Plant (optional)"
+                    className="flex-1 px-4 py-2 rounded-xl border border-stone-200 focus:outline-none focus:ring-2 focus:ring-green-500/50 focus:border-green-500 text-sm"
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    type="date"
+                    value={newTaskDueDate}
+                    onChange={(e) => setNewTaskDueDate(e.target.value)}
+                    className="flex-1 px-3 py-2 rounded-xl border border-stone-200 focus:outline-none focus:ring-2 focus:ring-green-500/50 focus:border-green-500 text-sm text-stone-600"
+                  />
+                  <select
+                    value={newTaskFrequency}
+                    onChange={(e) => setNewTaskFrequency(e.target.value as any)}
+                    className="flex-1 px-3 py-2 rounded-xl border border-stone-200 focus:outline-none focus:ring-2 focus:ring-green-500/50 focus:border-green-500 text-sm text-stone-600 bg-white"
+                  >
+                    <option value="none">No repeat</option>
+                    <option value="daily">Daily</option>
+                    <option value="weekly">Weekly</option>
+                    <option value="biweekly">Bi-weekly</option>
+                    <option value="monthly">Monthly</option>
+                  </select>
+                  <button
+                    type="submit"
+                    disabled={!newTaskText.trim()}
+                    className="bg-green-600 text-white px-4 py-2 rounded-xl hover:bg-green-700 disabled:opacity-50 disabled:hover:bg-green-600 transition-colors flex items-center justify-center"
+                  >
+                    <Plus className="w-5 h-5" />
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
         </div>
       )}
+      <Toaster position="top-center" richColors />
     </div>
   );
 }
