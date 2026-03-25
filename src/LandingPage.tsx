@@ -1,8 +1,11 @@
 import React, { useState } from 'react';
-import { Leaf, Sprout, MapPin, Scan, Brain, ShieldCheck, ChevronDown, ArrowRight, HelpCircle, Map, Star, Droplets, Sun, Thermometer } from 'lucide-react';
+import { Leaf, Sprout, MapPin, Scan, Brain, ShieldCheck, ChevronDown, ArrowRight, HelpCircle, Map, Star, Droplets, Sun, Thermometer, Twitter, Facebook, Linkedin, Link, ListTodo, Activity, Bug } from 'lucide-react';
 
 interface LandingPageProps {
   onStartChat: () => void;
+  onOpenTasks: () => void;
+  onOpenDiseaseGuide: () => void;
+  onOpenPestGuide: () => void;
 }
 
 const FAQS = [
@@ -39,24 +42,82 @@ const SHOWCASE_PLANTS = [
   },
   {
     name: "English Lavender",
-    image: "https://images.unsplash.com/photo-1496843916299-5904cb0c8e1d?auto=format&fit=crop&q=80&w=800",
+    image: "https://images.unsplash.com/photo-1565011523534-747a8601f10a?auto=format&fit=crop&q=80&w=800",
     description: "A fragrant, drought-tolerant herb perfect for pollinator gardens. Demands excellent drainage.",
     stats: { water: "Low (when established)", light: "Full Sun", temp: "Hardy to -20°F" }
   }
 ];
 
-export default function LandingPage({ onStartChat }: LandingPageProps) {
+export default function LandingPage({ onStartChat, onOpenTasks, onOpenDiseaseGuide, onOpenPestGuide }: LandingPageProps) {
   const [openFaq, setOpenFaq] = useState<number | null>(null);
+
+  const handleShare = async (platform: string) => {
+    const url = window.location.href;
+    const text = "Check out Botanica, the AI-powered master gardener! 🌱";
+    
+    switch (platform) {
+      case 'twitter':
+        window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`, '_blank');
+        break;
+      case 'facebook':
+        window.open(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}`, '_blank');
+        break;
+      case 'linkedin':
+        window.open(`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(url)}`, '_blank');
+        break;
+      case 'native':
+        if (navigator.share) {
+          navigator.share({
+            title: 'Botanica AI',
+            text: text,
+            url: url,
+          }).catch(console.error);
+        } else {
+          try {
+            await navigator.clipboard.writeText(url);
+            alert('Link copied to clipboard!');
+          } catch (err) {
+            console.error('Failed to copy link', err);
+          }
+        }
+        break;
+    }
+  };
 
   return (
     <div className="min-h-screen bg-stone-50 text-stone-900 font-sans overflow-x-hidden">
       {/* Navigation */}
       <nav className="bg-green-900/90 backdrop-blur-md text-white p-4 shadow-md flex justify-between items-center fixed top-0 w-full z-50">
-        <div className="flex items-center gap-3 max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8">
-          <div className="bg-green-700 p-2 rounded-full">
-            <Sprout className="w-6 h-6 text-green-100" />
+        <div className="flex items-center justify-between max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center gap-3">
+            <div className="bg-green-700 p-2 rounded-full">
+              <Sprout className="w-6 h-6 text-green-100" />
+            </div>
+            <h1 className="text-xl font-semibold tracking-tight">Botanica</h1>
           </div>
-          <h1 className="text-xl font-semibold tracking-tight">Botanica</h1>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={onOpenTasks}
+              className="flex items-center gap-2 text-sm font-medium text-green-800 bg-green-100 hover:bg-white px-3 py-2 rounded-full transition-colors shadow-sm"
+            >
+              <ListTodo className="w-4 h-4" />
+              <span className="hidden sm:inline">Tasks</span>
+            </button>
+            <button
+              onClick={onOpenDiseaseGuide}
+              className="flex items-center gap-2 text-sm font-medium text-green-800 bg-green-100 hover:bg-white px-3 py-2 rounded-full transition-colors shadow-sm"
+            >
+              <Activity className="w-4 h-4" />
+              <span className="hidden sm:inline">Disease Guide</span>
+            </button>
+            <button
+              onClick={onOpenPestGuide}
+              className="flex items-center gap-2 text-sm font-medium text-green-800 bg-green-100 hover:bg-white px-3 py-2 rounded-full transition-colors shadow-sm"
+            >
+              <Bug className="w-4 h-4" />
+              <span className="hidden sm:inline">Pest Guide</span>
+            </button>
+          </div>
         </div>
       </nav>
 
@@ -264,9 +325,23 @@ export default function LandingPage({ onStartChat }: LandingPageProps) {
 
       {/* Footer */}
       <footer className="bg-stone-900 text-stone-400 py-12 text-center">
-        <div className="flex items-center justify-center gap-2 mb-4">
+        <div className="flex items-center justify-center gap-2 mb-6">
           <Leaf className="w-5 h-5 text-green-500" />
           <span className="text-xl font-semibold text-white tracking-tight">Botanica</span>
+        </div>
+        <div className="flex justify-center items-center gap-6 mb-8">
+          <button onClick={() => handleShare('twitter')} className="hover:text-white transition-colors" title="Share on Twitter">
+            <Twitter className="w-5 h-5" />
+          </button>
+          <button onClick={() => handleShare('facebook')} className="hover:text-white transition-colors" title="Share on Facebook">
+            <Facebook className="w-5 h-5" />
+          </button>
+          <button onClick={() => handleShare('linkedin')} className="hover:text-white transition-colors" title="Share on LinkedIn">
+            <Linkedin className="w-5 h-5" />
+          </button>
+          <button onClick={() => handleShare('native')} className="hover:text-white transition-colors" title="Copy Link / Share">
+            <Link className="w-5 h-5" />
+          </button>
         </div>
         <p>© {new Date().getFullYear()} Botanica AI. All rights reserved.</p>
       </footer>
