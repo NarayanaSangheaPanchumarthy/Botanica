@@ -302,7 +302,7 @@ export default function GardenMonitor({ onClose, aiModel }: GardenMonitorProps) 
       </div>
 
       {/* Main Viewport */}
-      <div className={`flex-1 relative overflow-hidden bg-stone-950 flex items-center justify-center transition-all duration-500 ${motionDetected ? 'ring-inset ring-8 ring-red-500/80 shadow-[inset_0_0_50px_rgba(239,68,68,0.8)]' : ''}`}>
+      <div className={`flex-1 relative overflow-hidden bg-stone-950 flex items-center justify-center transition-all duration-300 ${motionDetected ? 'ring-inset ring-[12px] ring-red-500/90 shadow-[inset_0_0_100px_rgba(239,68,68,0.9)]' : ''}`}>
         {isCameraLoading && (
           <div className="absolute inset-0 z-50 bg-stone-950 flex flex-col items-center justify-center gap-4">
             <motion.div
@@ -383,13 +383,20 @@ export default function GardenMonitor({ onClose, aiModel }: GardenMonitorProps) 
           )}
 
           {/* Motion Indicator */}
-          {motionDetected && (
-            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center gap-2">
-              <div className="px-4 py-2 bg-red-500/80 text-white text-xs font-bold rounded-full animate-bounce flex items-center gap-2">
-                <Activity className="w-4 h-4" /> MOTION DETECTED
-              </div>
-            </div>
-          )}
+          <AnimatePresence>
+            {motionDetected && (
+              <motion.div 
+                initial={{ opacity: 0, y: -20, scale: 0.9 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -20, scale: 0.9 }}
+                className="absolute top-12 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 z-50"
+              >
+                <div className="px-6 py-3 bg-red-600/90 backdrop-blur-md text-white text-sm font-black tracking-widest rounded-full animate-pulse flex items-center gap-3 shadow-[0_0_40px_rgba(220,38,38,0.8)] border border-red-400/50">
+                  <Activity className="w-5 h-5" /> MOTION DETECTED
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
 
         {/* Stats Overlay */}
