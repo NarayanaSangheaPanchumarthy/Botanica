@@ -13,16 +13,31 @@ import {
   BellRing, 
   BellOff, 
   X, 
+  Map,
   ListTodo, 
   Sparkles, 
   Activity, 
   Bug, 
   ArrowLeft, 
+  ArrowRight,
   Mic, 
   MicOff, 
   Image as ImageIcon, 
   Send, 
   Scan, 
+  Edit,
+  ThumbsUp,
+  ThumbsDown,
+  ChevronLeft,
+  ChevronRight,
+  Droplets,
+  Thermometer,
+  Link,
+  MapPin,
+  Menu,
+  Globe,
+  ShieldCheck,
+  ShieldAlert,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Toaster, toast } from 'sonner';
@@ -54,6 +69,15 @@ interface NotificationSettings {
   enabled: boolean;
 }
 
+interface Message {
+  role: 'user' | 'assistant';
+  content: string;
+  image?: string | null;
+  isScanResult?: boolean;
+  feedback?: 'correct' | 'incorrect';
+  groundingMetadata?: any;
+}
+
 // Constants
 const CATEGORIES = ['Watering', 'Fertilizing', 'Pruning', 'Repotting', 'Harvesting', 'General'];
 const NOTIFICATION_SOUNDS = {
@@ -63,17 +87,92 @@ const NOTIFICATION_SOUNDS = {
   water: 'https://assets.mixkit.co/active_storage/sfx/1113/1113-preview.mp3'
 };
 
+const CalendarView = ({ tasks }: { tasks: Task[] }) => {
+  const [viewDate, setViewDate] = useState(new Date());
+  
+  const daysInMonth = (year: number, month: number) => new Date(year, month + 1, 0).getDate();
+  const firstDayOfMonth = (year: number, month: number) => new Date(year, month, 1).getDay();
+  
+  const year = viewDate.getFullYear();
+  const month = viewDate.getMonth();
+  
+  const days = [];
+  const numDays = daysInMonth(year, month);
+  const startDay = firstDayOfMonth(year, month);
+  
+  for (let i = 0; i < startDay; i++) {
+    days.push(null);
+  }
+  
+  for (let i = 1; i <= numDays; i++) {
+    days.push(i);
+  }
+  
+  const monthName = viewDate.toLocaleString('default', { month: 'long' });
+  
+  const prevMonth = () => setViewDate(new Date(year, month - 1, 1));
+  const nextMonth = () => setViewDate(new Date(year, month + 1, 1));
+
+  return (
+    <div className="flex flex-col h-full">
+      <div className="flex items-center justify-between mb-8">
+        <h3 className="text-2xl font-bold text-stone-800">{monthName} {year}</h3>
+        <div className="flex gap-2">
+          <button onClick={prevMonth} className="p-2 hover:bg-stone-100 rounded-full transition-colors"><ChevronLeft className="w-6 h-6" /></button>
+          <button onClick={nextMonth} className="p-2 hover:bg-stone-100 rounded-full transition-colors"><ChevronRight className="w-6 h-6" /></button>
+        </div>
+      </div>
+      
+      <div className="grid grid-cols-7 gap-px bg-stone-200 border border-stone-200 rounded-xl overflow-hidden">
+        {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
+          <div key={day} className="bg-stone-50 py-2 text-center text-xs font-bold text-stone-500 uppercase tracking-wider">{day}</div>
+        ))}
+        {days.map((day, i) => {
+          const dateStr = day ? `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}` : null;
+          const dayTasks = tasks.filter(t => t.dueDate === dateStr);
+          const isToday = day && new Date().toISOString().split('T')[0] === dateStr;
+
+          return (
+            <div key={i} className={`bg-white min-h-[100px] sm:min-h-[120px] p-2 flex flex-col gap-1 ${!day ? 'bg-stone-50/50' : ''}`}>
+              {day && (
+                <>
+                  <span className={`text-sm font-medium ${isToday ? 'bg-green-600 text-white w-6 h-6 flex items-center justify-center rounded-full' : 'text-stone-400'}`}>{day}</span>
+                  <div className="flex flex-col gap-1 mt-1 overflow-y-auto max-h-[80px]">
+                    {dayTasks.map(task => (
+                      <div key={task.id} className={`text-[9px] sm:text-[10px] p-1 rounded border leading-tight ${task.completed ? 'bg-stone-50 text-stone-400 border-stone-100' : 'bg-green-50 text-green-800 border-green-100 shadow-sm'}`}>
+                        <div className="font-bold flex items-center gap-1 truncate">
+                          {task.category === 'Watering' && <Droplets className="w-2 h-2 text-blue-500" />}
+                          {task.category === 'Fertilizing' && <Sprout className="w-2 h-2 text-amber-500" />}
+                          {task.text}
+                        </div>
+                        {task.plantName && <div className="opacity-70 truncate italic">{task.plantName}</div>}
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [showTasks, setShowTasks] = useState(false);
+  const [showCareSchedule, setShowCareSchedule] = useState(false);
   const [showDiseaseGuide, setShowDiseaseGuide] = useState(false);
   const [showPestGuide, setShowPestGuide] = useState(false);
+  const [showMenu, setShowMenu] = useState(false);
   const [input, setInput] = useState('');
-  const [messages, setMessages] = useState<any[]>([]);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [reportDetailLevel, setReportDetailLevel] = useState<'Brief' | 'Detailed' | 'Expert'>('Detailed');
+  const [useRealTimeSearch, setUseRealTimeSearch] = useState(true);
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>('default');
   const [notificationSettings, setNotificationSettings] = useState<NotificationSettings>({
     defaultReminderMinutes: 0,
@@ -92,11 +191,17 @@ export default function App() {
   const [newTaskReminderMinutes, setNewTaskReminderMinutes] = useState<number>(0);
   const [newTaskFrequency, setNewTaskFrequency] = useState<'none' | 'daily' | 'weekly' | 'biweekly' | 'monthly'>('none');
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [editingTask, setEditingTask] = useState<Task | null>(null);
+  const [showMaps, setShowMaps] = useState(false);
+  const [aiModel, setAiModel] = useState<string>('gemini-3-flash-preview');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const scanFileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const lastNotifiedRef = useRef<Set<string>>(new Set());
+  const [mapsResults, setMapsResults] = useState<any>(null);
+  const [isMapsLoading, setIsMapsLoading] = useState(false);
+  const [pendingScan, setPendingScan] = useState(false);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (u) => {
@@ -104,6 +209,59 @@ export default function App() {
     });
     return () => unsubscribe();
   }, []);
+
+  useEffect(() => {
+    if (showMaps && !mapsResults && !isMapsLoading) {
+      fetchNearbyGardens();
+    }
+  }, [showMaps]);
+
+  useEffect(() => {
+    if (isChatOpen && pendingScan && scanFileInputRef.current) {
+      scanFileInputRef.current.click();
+      setPendingScan(false);
+    }
+  }, [isChatOpen, pendingScan]);
+
+  const fetchNearbyGardens = async () => {
+    setIsMapsLoading(true);
+    try {
+      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      
+      let location = null;
+      try {
+        const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 5000 });
+        });
+        location = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
+      } catch (e) {
+        console.warn("Geolocation failed, using default search");
+      }
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: "Find the best plant nurseries, garden centers, and community gardens nearby. Provide a helpful summary and list them with their locations.",
+        config: {
+          tools: [{ googleMaps: {} }],
+          toolConfig: location ? {
+            retrievalConfig: {
+              latLng: location
+            }
+          } : undefined
+        }
+      });
+
+      setMapsResults({
+        text: response.text,
+        chunks: response.candidates?.[0]?.groundingMetadata?.groundingChunks || []
+      });
+    } catch (error) {
+      console.error("Maps Error:", error);
+      toast.error("Failed to fetch local garden info");
+    } finally {
+      setIsMapsLoading(false);
+    }
+  };
 
   useEffect(() => {
     if (user) {
@@ -228,6 +386,19 @@ export default function App() {
     }
   };
 
+  const updateTask = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingTask || !editingTask.text.trim()) return;
+
+    if (user) {
+      await setDoc(doc(db, 'users', user.uid, 'tasks', editingTask.id), editingTask);
+    } else {
+      setTasks(prev => prev.map(t => t.id === editingTask.id ? editingTask : t));
+    }
+    setEditingTask(null);
+    toast.success("Task updated!");
+  };
+
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -240,13 +411,70 @@ export default function App() {
   const handleScanImageSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      toast.promise(new Promise(resolve => setTimeout(resolve, 2000)), {
-        loading: 'Analyzing plant...',
-        success: 'Analysis complete!',
-        error: 'Analysis failed'
-      });
-      setIsChatOpen(true);
-      setMessages(prev => [...prev, { role: 'user', content: 'Please analyze this plant scan.' }, { role: 'assistant', content: 'I see a healthy Monstera Deliciosa. The leaves are vibrant, but I notice some slight browning on the tips, which could indicate low humidity.' }]);
+      const reader = new FileReader();
+      reader.onloadend = async () => {
+        const base64 = reader.result as string;
+        setIsChatOpen(true);
+        setIsLoading(true);
+        setMessages(prev => [...prev, { role: 'user', content: 'Please analyze this plant scan.', image: base64 } as Message]);
+
+        try {
+          const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+          const response = await ai.models.generateContent({
+            model: aiModel,
+            contents: [
+              {
+                parts: [
+                  { text: `Identify this plant and provide a health report at a ${reportDetailLevel} level. Include common name, scientific name, and care tips.` },
+                  { inlineData: { mimeType: file.type, data: base64.split(',')[1] } }
+                ]
+              }
+            ],
+            config: {
+              tools: useRealTimeSearch ? [{ googleSearch: {} }] : []
+            }
+          });
+
+          setMessages(prev => [...prev, { 
+            role: 'assistant', 
+            content: response.text, 
+            isScanResult: true,
+            image: base64,
+            groundingMetadata: response.candidates?.[0]?.groundingMetadata
+          }]);
+        } catch (error) {
+          console.error("Gemini Analysis Error:", error);
+          let errorMessage = "Failed to analyze plant. Please try again or upload a clearer image.";
+          
+          if (error instanceof Error) {
+            if (error.message.includes('safety')) {
+              errorMessage = "The image could not be analyzed due to safety filters. Please ensure it's a clear photo of a plant.";
+            } else if (error.message.includes('quota') || error.message.includes('429')) {
+              errorMessage = "The AI service is temporarily busy. Please try again in a moment.";
+            } else if (error.message.includes('network') || error.message.includes('fetch')) {
+              errorMessage = "Network error. Please check your connection and try again.";
+            }
+          }
+          
+          toast.error(errorMessage, { duration: 5000 });
+          setMessages(prev => [...prev, { 
+            role: 'assistant', 
+            content: `I'm sorry, I couldn't analyze that image. ${errorMessage}` 
+          } as Message]);
+        } finally {
+          setIsLoading(false);
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleFeedback = (index: number, feedback: 'correct' | 'incorrect') => {
+    setMessages(prev => prev.map((msg, i) => i === index ? { ...msg, feedback } : msg));
+    if (feedback === 'correct') {
+      toast.success("Thank you for your feedback!");
+    } else {
+      toast.info("Sorry about that! I'll try to do better next time.");
     }
   };
 
@@ -254,7 +482,7 @@ export default function App() {
     e.preventDefault();
     if (!input.trim() && !selectedImage) return;
 
-    const userMessage = { role: 'user', content: input, image: selectedImage };
+    const userMessage: Message = { role: 'user', content: input, image: selectedImage };
     setMessages(prev => [...prev, userMessage]);
     setInput('');
     setSelectedImage(null);
@@ -264,13 +492,20 @@ export default function App() {
       const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
       
       const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
+        model: aiModel,
         contents: [
           { role: 'user', parts: [{ text: `User is asking about gardening at a ${reportDetailLevel} level. Question: ${input}` }] }
-        ]
+        ],
+        config: {
+          tools: [{ googleSearch: {} }]
+        }
       });
 
-      setMessages(prev => [...prev, { role: 'assistant', content: response.text }]);
+      setMessages(prev => [...prev, { 
+        role: 'assistant', 
+        content: response.text,
+        groundingMetadata: response.candidates?.[0]?.groundingMetadata
+      }]);
       setIsLoading(false);
     } catch (error) {
       toast.error("Failed to get AI response");
@@ -322,9 +557,13 @@ export default function App() {
     return <LandingPage 
       onStartChat={() => setIsChatOpen(true)} 
       onOpenTasks={() => { setIsChatOpen(true); setShowTasks(true); }}
+      onOpenCareSchedule={() => { setIsChatOpen(true); setShowCareSchedule(true); }}
       onOpenDiseaseGuide={() => { setIsChatOpen(true); setShowDiseaseGuide(true); }}
       onOpenPestGuide={() => { setIsChatOpen(true); setShowPestGuide(true); }}
-      onOpenScanReport={() => { setIsChatOpen(true); scanFileInputRef.current?.click(); }}
+      onOpenScanReport={() => { setIsChatOpen(true); setPendingScan(true); }}
+      onOpenMaps={() => { setIsChatOpen(true); setShowMaps(true); }}
+      aiModel={aiModel}
+      onAiModelChange={setAiModel}
       detailLevel={reportDetailLevel}
       onDetailLevelChange={setReportDetailLevel}
     />;
@@ -345,15 +584,34 @@ export default function App() {
             <p className="text-green-200 text-xs font-medium hidden sm:block">Your AI Gardening Assistant</p>
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center">
+          <div className="hidden lg:flex items-center gap-2 bg-green-900/30 px-3 py-1.5 rounded-full border border-green-700/50">
+            <span className="text-[10px] font-bold text-green-200 uppercase tracking-wider">Model:</span>
+            <select 
+              value={aiModel} 
+              onChange={(e) => setAiModel(e.target.value)}
+              className="bg-transparent text-xs font-bold text-white outline-none border-none cursor-pointer"
+            >
+              <option value="gemini-3-flash-preview" className="text-stone-800">Flash (Fast)</option>
+              <option value="gemini-3.1-pro-preview" className="text-stone-800">Pro (Accurate)</option>
+              <option value="gemini-3.1-flash-lite-preview" className="text-stone-800">Lite (Efficient)</option>
+            </select>
+          </div>
           <input type="file" accept="image/*" className="hidden" ref={scanFileInputRef} onChange={handleScanImageSelect} />
           <button onClick={() => scanFileInputRef.current?.click()} className="flex items-center gap-2 text-sm font-medium text-green-800 bg-green-100 hover:bg-white px-3 py-2 rounded-full transition-colors shadow-sm">
-            <Scan className="w-4 h-4 text-green-600" />
-            <span className="hidden sm:inline">AI Scan Report</span>
+            <ShieldCheck className="w-4 h-4 text-green-600" />
+            <span className="hidden sm:inline">Organic Health Diagnostics</span>
           </button>
           <button onClick={() => setShowTasks(true)} className="flex items-center gap-2 text-sm font-medium text-green-800 bg-green-100 hover:bg-white px-3 py-2 rounded-full transition-colors shadow-sm">
             <ListTodo className="w-4 h-4 text-green-600" />
             <span className="hidden sm:inline">Tasks</span>
+          </button>
+          <button onClick={() => setShowCareSchedule(true)} className="flex items-center gap-2 text-sm font-medium text-green-800 bg-green-100 hover:bg-white px-3 py-2 rounded-full transition-colors shadow-sm">
+            <Calendar className="w-4 h-4 text-green-600" />
+            <span className="hidden sm:inline">Care Schedule</span>
+          </button>
+          <button onClick={() => setShowMenu(true)} className="p-2 text-green-100 hover:bg-green-700 rounded-full transition-colors">
+            <Menu className="w-6 h-6" />
           </button>
         </div>
       </header>
@@ -373,6 +631,58 @@ export default function App() {
                 <div className="markdown-body text-sm leading-relaxed">
                   <Markdown>{msg.content}</Markdown>
                 </div>
+                {msg.groundingMetadata?.groundingChunks && (
+                  <div className="mt-3 pt-3 border-t border-stone-100">
+                    <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-2 flex items-center gap-1">
+                      <Link className="w-3 h-3" /> Sources
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {msg.groundingMetadata.groundingChunks.map((chunk: any, idx: number) => (
+                        chunk.web && (
+                          <a 
+                            key={idx} 
+                            href={chunk.web.uri} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="text-[10px] bg-stone-50 hover:bg-green-50 text-stone-600 hover:text-green-700 px-2 py-1 rounded-md border border-stone-100 transition-colors flex items-center gap-1 max-w-[200px] truncate"
+                          >
+                            {chunk.web.title || 'Source'}
+                          </a>
+                        )
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {msg.isScanResult && !msg.feedback && (
+                  <div className="mt-4 pt-4 border-t border-stone-100 flex items-center gap-4">
+                    <span className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">Was this accurate?</span>
+                    <div className="flex gap-2">
+                      <button 
+                        onClick={() => handleFeedback(i, 'correct')}
+                        className="p-1.5 hover:bg-green-50 rounded-lg text-stone-400 hover:text-green-600 transition-colors"
+                        title="Correct"
+                      >
+                        <ThumbsUp className="w-4 h-4" />
+                      </button>
+                      <button 
+                        onClick={() => handleFeedback(i, 'incorrect')}
+                        className="p-1.5 hover:bg-red-50 rounded-lg text-stone-400 hover:text-red-600 transition-colors"
+                        title="Incorrect"
+                      >
+                        <ThumbsDown className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {msg.feedback && (
+                  <div className="mt-2 text-[10px] font-bold uppercase tracking-widest flex items-center gap-1">
+                    {msg.feedback === 'correct' ? (
+                      <span className="text-green-600 flex items-center gap-1"><ThumbsUp className="w-3 h-3" /> Feedback: Accurate</span>
+                    ) : (
+                      <span className="text-red-600 flex items-center gap-1"><ThumbsDown className="w-3 h-3" /> Feedback: Inaccurate</span>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           ))}
@@ -420,6 +730,169 @@ export default function App() {
       </main>
 
       <AnimatePresence>
+        {showCareSchedule && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white w-full max-w-5xl h-[90vh] rounded-3xl shadow-2xl overflow-hidden flex flex-col"
+            >
+              {/* Header */}
+              <div className="p-4 border-b border-stone-200 flex justify-between items-center bg-green-50">
+                <div className="flex items-center gap-4">
+                  <div className="bg-green-100 p-2 rounded-xl">
+                    <Calendar className="w-6 h-6 text-green-700" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-bold text-stone-800">Care Schedule</h2>
+                    <p className="text-xs text-stone-500">View and manage your upcoming plant care tasks</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setShowCareSchedule(false)} 
+                  className="p-2 hover:bg-stone-100 rounded-full text-stone-400 transition-colors"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+              
+              {/* Calendar Content */}
+              <div className="flex-1 overflow-y-auto p-4 sm:p-8 bg-stone-50/30">
+                <CalendarView tasks={tasks} />
+              </div>
+
+              {/* Footer */}
+              <div className="p-4 border-t border-stone-100 bg-white flex justify-between items-center">
+                <div className="flex gap-4 text-xs">
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-3 h-3 rounded-full bg-blue-500" />
+                    <span className="text-stone-600">Watering</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-3 h-3 rounded-full bg-amber-500" />
+                    <span className="text-stone-600">Fertilizing</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-3 h-3 rounded-full bg-green-600" />
+                    <span className="text-stone-600">Other</span>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setShowCareSchedule(false)}
+                  className="px-6 py-2 bg-stone-100 hover:bg-stone-200 text-stone-700 font-semibold rounded-xl transition-all"
+                >
+                  Close
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showMenu && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="bg-white w-full max-w-md rounded-3xl shadow-2xl overflow-hidden flex flex-col"
+            >
+              <div className="p-6 border-b border-stone-100 flex justify-between items-center bg-green-50">
+                <h2 className="text-xl font-bold text-green-800 flex items-center gap-2">
+                  <Menu className="w-6 h-6" />
+                  Menu & Settings
+                </h2>
+                <button onClick={() => setShowMenu(false)} className="p-2 hover:bg-green-100 rounded-full text-green-800 transition-colors">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              
+              <div className="p-6 space-y-8 overflow-y-auto max-h-[70vh]">
+                {/* Real-time Toggle */}
+                <div className="space-y-4">
+                  <h3 className="text-xs font-bold text-stone-400 uppercase tracking-widest">AI Settings</h3>
+                  <div className="flex items-center justify-between p-4 bg-stone-50 rounded-2xl border border-stone-100">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center text-blue-600">
+                        <Globe className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-bold text-stone-800">Real-time Information</p>
+                        <p className="text-[10px] text-stone-500">Enable Google Search grounding</p>
+                      </div>
+                    </div>
+                    <button 
+                      onClick={() => setUseRealTimeSearch(!useRealTimeSearch)}
+                      className={`w-12 h-6 rounded-full relative transition-colors ${useRealTimeSearch ? 'bg-green-500' : 'bg-stone-300'}`}
+                    >
+                      <div className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow-sm transition-all ${useRealTimeSearch ? 'left-7' : 'left-1'}`} />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Diagnostics History */}
+                <div className="space-y-4">
+                  <div className="flex justify-between items-center">
+                    <h3 className="text-xs font-bold text-stone-400 uppercase tracking-widest">Organic Health Diagnostics History</h3>
+                    <button 
+                      onClick={() => {
+                        setShowMenu(false);
+                        scanFileInputRef.current?.click();
+                      }}
+                      className="text-[10px] font-bold text-green-600 hover:text-green-700 flex items-center gap-1"
+                    >
+                      <Plus className="w-3 h-3" /> New Scan
+                    </button>
+                  </div>
+                  <div className="space-y-3">
+                    {messages.filter(m => m.isScanResult).length === 0 ? (
+                      <div className="text-center py-8 bg-stone-50 rounded-2xl border border-dashed border-stone-200">
+                        <ShieldCheck className="w-10 h-10 mx-auto mb-2 text-stone-300" />
+                        <p className="text-xs text-stone-500">No diagnostic reports yet.</p>
+                      </div>
+                    ) : (
+                      messages.filter(m => m.isScanResult).map((scan, idx) => (
+                        <button 
+                          key={idx}
+                          onClick={() => {
+                            setShowMenu(false);
+                          }}
+                          className="w-full flex items-center gap-3 p-3 bg-white border border-stone-100 rounded-2xl hover:border-green-200 hover:bg-green-50 transition-all text-left group"
+                        >
+                          <div className="w-12 h-12 rounded-xl overflow-hidden shrink-0 border border-stone-100">
+                            <img src={scan.image} alt="Scan" className="w-full h-full object-cover" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-bold text-stone-800 truncate">Diagnostic Report #{messages.filter(m => m.isScanResult).length - idx}</p>
+                            <p className="text-[10px] text-stone-500 truncate">{scan.content.substring(0, 60)}...</p>
+                          </div>
+                          <ChevronRight className="w-4 h-4 text-stone-300 group-hover:text-green-500 transition-colors" />
+                        </button>
+                      ))
+                    )}
+                  </div>
+                </div>
+
+                {/* Other Links */}
+                <div className="grid grid-cols-2 gap-3">
+                  <button onClick={() => { setShowMenu(false); setShowDiseaseGuide(true); }} className="p-4 bg-stone-50 rounded-2xl border border-stone-100 hover:bg-white hover:border-green-200 transition-all text-left">
+                    <ShieldAlert className="w-5 h-5 text-red-500 mb-2" />
+                    <p className="text-xs font-bold text-stone-800">Disease Guide</p>
+                  </button>
+                  <button onClick={() => { setShowMenu(false); setShowPestGuide(true); }} className="p-4 bg-stone-50 rounded-2xl border border-stone-100 hover:bg-white hover:border-green-200 transition-all text-left">
+                    <Bug className="w-5 h-5 text-orange-500 mb-2" />
+                    <p className="text-xs font-bold text-stone-800">Pest Guide</p>
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
         {showTasks && (
           <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
             <motion.div 
@@ -443,7 +916,7 @@ export default function App() {
                   <button onClick={requestNotificationPermission} className="p-1.5 hover:bg-green-200/50 rounded-full transition-colors">
                     {notificationPermission === 'granted' ? <BellRing className="w-5 h-5 text-green-600" /> : <Bell className="w-5 h-5 text-stone-500" />}
                   </button>
-                  <button onClick={() => setShowTasks(false)} className="p-1.5 hover:bg-green-200/50 rounded-full text-green-800 transition-colors"><X className="w-5 h-5" /></button>
+                  <button onClick={() => { setShowTasks(false); setEditingTask(null); }} className="p-1.5 hover:bg-green-200/50 rounded-full text-green-800 transition-colors"><X className="w-5 h-5" /></button>
                 </div>
               </div>
 
@@ -543,6 +1016,9 @@ export default function App() {
                                     </div>
                                   </button>
                                   <div className="flex items-center gap-1">
+                                    <button onClick={() => setEditingTask(task)} className="p-1.5 text-stone-400 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors" title="Edit task">
+                                      <Edit className="w-4 h-4" />
+                                    </button>
                                     <button onClick={(e) => { e.stopPropagation(); toggleTask(task.id); }} className={`p-1.5 rounded-lg transition-colors ${task.notificationsEnabled !== false ? 'text-green-600 hover:bg-green-50' : 'text-stone-300 hover:bg-stone-100'}`}>
                                       {task.notificationsEnabled !== false ? <BellRing className="w-4 h-4" /> : <BellOff className="w-4 h-4" />}
                                     </button>
@@ -559,8 +1035,44 @@ export default function App() {
                 )}
               </div>
 
-              <div className="p-4 border-t border-stone-200 bg-stone-50">
-                <form onSubmit={addTask} className="space-y-3">
+              {taskModalTab === 'list' && (
+                <div className="p-4 border-t border-stone-200 bg-stone-50">
+                  {editingTask ? (
+                  <form onSubmit={updateTask} className="space-y-3">
+                    <div className="flex justify-between items-center mb-1">
+                      <h3 className="text-xs font-bold text-green-800 uppercase tracking-wider">Editing Task</h3>
+                      <button type="button" onClick={() => setEditingTask(null)} className="text-stone-400 hover:text-stone-600"><X className="w-4 h-4" /></button>
+                    </div>
+                    <div className="flex gap-2">
+                      <input type="text" value={editingTask.text} onChange={(e) => setEditingTask({...editingTask, text: e.target.value})} placeholder="Task text..." className="flex-[2] px-4 py-2 rounded-xl border border-stone-200 focus:outline-none focus:ring-2 focus:ring-green-500/50 text-sm" />
+                      <input type="text" value={editingTask.plantName || ''} onChange={(e) => setEditingTask({...editingTask, plantName: e.target.value})} placeholder="Plant" className="flex-1 px-4 py-2 rounded-xl border border-stone-200 focus:outline-none focus:ring-2 focus:ring-green-500/50 text-sm" />
+                    </div>
+                    <div className="flex gap-2">
+                      <input type="date" value={editingTask.dueDate || ''} onChange={(e) => setEditingTask({...editingTask, dueDate: e.target.value})} className="flex-1 px-3 py-2 rounded-xl border border-stone-200 text-sm text-stone-600" />
+                      <input type="time" value={editingTask.dueTime || ''} onChange={(e) => setEditingTask({...editingTask, dueTime: e.target.value})} className="flex-1 px-3 py-2 rounded-xl border border-stone-200 text-sm text-stone-600" />
+                      <select value={editingTask.category || ''} onChange={(e) => setEditingTask({...editingTask, category: e.target.value})} className="flex-1 px-3 py-2 rounded-xl border border-stone-200 text-sm text-stone-600 bg-white">
+                        <option value="">Category</option>
+                        {CATEGORIES.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                      </select>
+                    </div>
+                    <div className="flex gap-2">
+                      <select value={editingTask.reminderMinutes || 0} onChange={(e) => setEditingTask({...editingTask, reminderMinutes: Number(e.target.value)})} className="flex-1 px-3 py-2 rounded-xl border border-stone-200 text-sm text-stone-600 bg-white">
+                        <option value={0}>At time</option>
+                        <option value={15}>15m before</option>
+                        <option value={30}>30m before</option>
+                        <option value={60}>1h before</option>
+                      </select>
+                      <button type="button" onClick={() => setEditingTask({...editingTask, notificationsEnabled: !editingTask.notificationsEnabled})} className={`flex-1 px-3 py-2 rounded-xl border text-sm transition-colors flex items-center justify-center gap-2 ${editingTask.notificationsEnabled !== false ? 'bg-green-50 border-green-200 text-green-700' : 'bg-stone-50 border-stone-200 text-stone-500'}`}>
+                        {editingTask.notificationsEnabled !== false ? <BellRing className="w-4 h-4" /> : <BellOff className="w-4 h-4" />}
+                        {editingTask.notificationsEnabled !== false ? 'Alerts On' : 'Alerts Off'}
+                      </button>
+                      <button type="submit" className="bg-green-600 text-white px-8 py-2 rounded-xl hover:bg-green-700 transition-colors flex items-center justify-center font-bold">
+                        Save Changes
+                      </button>
+                    </div>
+                  </form>
+                ) : (
+                  <form onSubmit={addTask} className="space-y-3">
                   <div className="flex gap-2">
                     <input type="text" value={newTaskText} onChange={(e) => setNewTaskText(e.target.value)} placeholder="Add a new task..." className="flex-[2] px-4 py-2 rounded-xl border border-stone-200 focus:outline-none focus:ring-2 focus:ring-green-500/50 text-sm" />
                     <input type="text" value={newTaskPlant} onChange={(e) => setNewTaskPlant(e.target.value)} placeholder="Plant" className="flex-1 px-4 py-2 rounded-xl border border-stone-200 focus:outline-none focus:ring-2 focus:ring-green-500/50 text-sm" />
@@ -584,7 +1096,208 @@ export default function App() {
                       <Plus className="w-5 h-5 mr-2" /> Add Task
                     </button>
                   </div>
-                </form>
+                  </form>
+                )}
+              </div>
+            )}
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Maps Modal */}
+      <AnimatePresence>
+        {showMaps && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[85vh]"
+            >
+              <div className="p-6 bg-green-800 text-white flex justify-between items-center shrink-0">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-green-700 rounded-xl">
+                    <Map className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-bold">Local Garden Guide</h2>
+                    <p className="text-green-200 text-xs">Nearby nurseries & community spaces</p>
+                  </div>
+                </div>
+                <button onClick={() => setShowMaps(false)} className="p-2 hover:bg-green-700 rounded-full transition-colors">
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                {isMapsLoading ? (
+                  <div className="flex flex-col items-center justify-center py-20 space-y-4">
+                    <div className="w-12 h-12 border-4 border-green-100 border-t-green-600 rounded-full animate-spin" />
+                    <p className="text-stone-500 font-medium animate-pulse">Scanning your local area...</p>
+                  </div>
+                ) : mapsResults ? (
+                  <>
+                    <div className="markdown-body text-stone-700 leading-relaxed">
+                      <Markdown>{mapsResults.text}</Markdown>
+                    </div>
+                    
+                    {mapsResults.chunks.length > 0 && (
+                      <div className="space-y-3">
+                        <h3 className="text-xs font-bold text-stone-400 uppercase tracking-widest flex items-center gap-2">
+                          <MapPin className="w-3 h-3" /> Verified Locations
+                        </h3>
+                        <div className="grid gap-3">
+                          {mapsResults.chunks.map((chunk: any, idx: number) => (
+                            chunk.maps && (
+                              <a 
+                                key={idx} 
+                                href={chunk.maps.uri} 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="flex items-center justify-between p-4 bg-stone-50 hover:bg-green-50 rounded-2xl border border-stone-100 transition-all group"
+                              >
+                                <div className="flex items-center gap-3">
+                                  <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-green-700 shadow-sm group-hover:scale-110 transition-transform">
+                                    <MapPin className="w-5 h-5" />
+                                  </div>
+                                  <div>
+                                    <span className="font-bold text-stone-900 block">{chunk.maps.title || 'View on Maps'}</span>
+                                    <span className="text-[10px] text-stone-400 uppercase tracking-wider">Open in Google Maps</span>
+                                  </div>
+                                </div>
+                                <ArrowRight className="w-5 h-5 text-stone-300 group-hover:text-green-600 transition-colors" />
+                              </a>
+                            )
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="text-center py-12">
+                    <p className="text-stone-500">No results found. Try again later.</p>
+                  </div>
+                )}
+              </div>
+              
+              <div className="p-6 bg-stone-50 border-t border-stone-100 shrink-0">
+                <button 
+                  onClick={fetchNearbyGardens}
+                  className="w-full py-4 bg-green-700 hover:bg-green-800 text-white rounded-2xl font-bold shadow-lg shadow-green-900/10 transition-all active:scale-[0.98] flex items-center justify-center gap-2"
+                >
+                  <Sparkles className="w-5 h-5" /> Refresh Recommendations
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showDiseaseGuide && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white w-full max-w-2xl h-[80vh] rounded-3xl shadow-2xl overflow-hidden flex flex-col"
+            >
+              <div className="p-6 border-b border-stone-100 flex justify-between items-center bg-red-50">
+                <h2 className="text-xl font-bold text-red-800 flex items-center gap-2">
+                  <ShieldAlert className="w-6 h-6" />
+                  Organic Disease Guide
+                </h2>
+                <button onClick={() => setShowDiseaseGuide(false)} className="p-2 hover:bg-red-100 rounded-full text-red-800 transition-colors">
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                <div className="bg-red-50/50 p-4 rounded-2xl border border-red-100">
+                  <p className="text-sm text-red-700 leading-relaxed">
+                    Botanica prioritizes organic and safe treatments. If you suspect a disease, use the <strong>Organic Health Diagnostics</strong> tool for a specific analysis.
+                  </p>
+                </div>
+                <div className="space-y-4">
+                  {[
+                    { name: 'Powdery Mildew', symptoms: 'White flour-like spots on leaves.', treatment: 'Neem oil or a mixture of milk and water (1:9 ratio).' },
+                    { name: 'Root Rot', symptoms: 'Yellowing leaves, stunted growth, mushy stems.', treatment: 'Improve drainage, reduce watering, and repot in fresh soil.' },
+                    { name: 'Leaf Spot', symptoms: 'Brown or black spots with yellow halos.', treatment: 'Remove affected leaves, improve air circulation, avoid overhead watering.' },
+                    { name: 'Rust', symptoms: 'Orange or rusty-colored pustules on leaf undersides.', treatment: 'Remove infected parts, apply organic sulfur or copper fungicide.' }
+                  ].map((disease, idx) => (
+                    <div key={idx} className="p-4 bg-white border border-stone-100 rounded-2xl shadow-sm">
+                      <h3 className="font-bold text-stone-900 mb-1">{disease.name}</h3>
+                      <p className="text-xs text-stone-500 mb-2"><strong>Symptoms:</strong> {disease.symptoms}</p>
+                      <div className="flex items-start gap-2 bg-green-50 p-2 rounded-lg">
+                        <Leaf className="w-3 h-3 text-green-600 mt-0.5" />
+                        <p className="text-xs text-green-800"><strong>Organic Treatment:</strong> {disease.treatment}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="p-6 border-t border-stone-100 bg-stone-50">
+                <button 
+                  onClick={() => setShowDiseaseGuide(false)}
+                  className="w-full py-3 bg-white border border-stone-200 hover:bg-stone-100 text-stone-700 font-bold rounded-xl transition-all"
+                >
+                  Close Guide
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showPestGuide && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white w-full max-w-2xl h-[80vh] rounded-3xl shadow-2xl overflow-hidden flex flex-col"
+            >
+              <div className="p-6 border-b border-stone-100 flex justify-between items-center bg-orange-50">
+                <h2 className="text-xl font-bold text-orange-800 flex items-center gap-2">
+                  <Bug className="w-6 h-6" />
+                  Organic Pest Guide
+                </h2>
+                <button onClick={() => setShowPestGuide(false)} className="p-2 hover:bg-orange-100 rounded-full text-orange-800 transition-colors">
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                <div className="bg-orange-50/50 p-4 rounded-2xl border border-orange-100">
+                  <p className="text-sm text-orange-700 leading-relaxed">
+                    Common garden pests can often be managed without harsh chemicals. Use the <strong>Organic Health Diagnostics</strong> tool for precise identification.
+                  </p>
+                </div>
+                <div className="space-y-4">
+                  {[
+                    { name: 'Aphids', symptoms: 'Small green/black insects, sticky residue, curled leaves.', treatment: 'Strong water spray, insecticidal soap, or introducing ladybugs.' },
+                    { name: 'Spider Mites', symptoms: 'Fine webbing on leaves, tiny yellow speckles.', treatment: 'Increase humidity, spray with water/neem oil mixture.' },
+                    { name: 'Mealybugs', symptoms: 'White cottony clusters in leaf axils.', treatment: 'Dab with alcohol-soaked cotton swab or use neem oil.' },
+                    { name: 'Fungus Gnats', symptoms: 'Tiny black flies around soil, larvae eating roots.', treatment: 'Allow soil to dry out, use yellow sticky traps, or BTI drench.' }
+                  ].map((pest, idx) => (
+                    <div key={idx} className="p-4 bg-white border border-stone-100 rounded-2xl shadow-sm">
+                      <h3 className="font-bold text-stone-900 mb-1">{pest.name}</h3>
+                      <p className="text-xs text-stone-500 mb-2"><strong>Symptoms:</strong> {pest.symptoms}</p>
+                      <div className="flex items-start gap-2 bg-green-50 p-2 rounded-lg">
+                        <Leaf className="w-3 h-3 text-green-600 mt-0.5" />
+                        <p className="text-xs text-green-800"><strong>Organic Treatment:</strong> {pest.treatment}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="p-6 border-t border-stone-100 bg-stone-50">
+                <button 
+                  onClick={() => setShowPestGuide(false)}
+                  className="w-full py-3 bg-white border border-stone-200 hover:bg-stone-100 text-stone-700 font-bold rounded-xl transition-all"
+                >
+                  Close Guide
+                </button>
               </div>
             </motion.div>
           </div>
