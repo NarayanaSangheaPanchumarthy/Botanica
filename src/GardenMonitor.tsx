@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState } from 'react';
-import { Camera, X, Shield, Activity, RefreshCw, AlertTriangle, Eye, EyeOff } from 'lucide-react';
+import { Camera, X, Shield, Activity, RefreshCw, AlertTriangle, Eye, EyeOff, Loader2, ZoomIn, ZoomOut, Search } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { GoogleGenAI, Type } from "@google/genai";
 import { toast } from 'sonner';
@@ -22,10 +22,13 @@ export default function GardenMonitor({ onClose, aiModel }: GardenMonitorProps) 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [isCameraLoading, setIsCameraLoading] = useState(true);
   const [isScanning, setIsScanning] = useState(false);
   const [lastResult, setLastResult] = useState<ScanResult | null>(null);
   const [isAutoMode, setIsAutoMode] = useState(false);
   const [motionDetected, setMotionDetected] = useState(false);
+  const [zoom, setZoom] = useState(1);
+  const [zoomCapabilities, setZoomCapabilities] = useState<{ min: number; max: number; step: number } | null>(null);
   
   const lastFrameRef = useRef<ImageData | null>(null);
   const motionThreshold = 50; // Sensitivity
@@ -40,19 +43,54 @@ export default function GardenMonitor({ onClose, aiModel }: GardenMonitorProps) 
   }, []);
 
   const startCamera = async () => {
+    setIsCameraLoading(true);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } } 
+        video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } } 
       });
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        setIsStreaming(true);
+        
+        // Check for zoom capabilities
+        const track = stream.getVideoTracks()[0];
+        const capabilities = track.getCapabilities() as any;
+        
+        if (capabilities.zoom) {
+          setZoomCapabilities({
+            min: capabilities.zoom.min,
+            max: capabilities.zoom.max,
+            step: capabilities.zoom.step || 0.1
+          });
+          setZoom(capabilities.zoom.min);
+        }
+
+        // Wait for video to be ready
+        videoRef.current.onloadedmetadata = () => {
+          setIsStreaming(true);
+          setIsCameraLoading(false);
+        };
       }
     } catch (err) {
       console.error("Camera access error:", err);
       toast.error("Could not access camera. Please check permissions.");
+      setIsCameraLoading(false);
     }
   };
+
+  // Apply zoom when it changes
+  useEffect(() => {
+    const applyZoom = async () => {
+      if (videoRef.current && videoRef.current.srcObject && zoomCapabilities) {
+        const track = (videoRef.current.srcObject as MediaStream).getVideoTracks()[0];
+        try {
+          await track.applyConstraints({ advanced: [{ zoom }] as any });
+        } catch (e) {
+          console.warn("Failed to apply zoom constraint:", e);
+        }
+      }
+    };
+    applyZoom();
+  }, [zoom, zoomCapabilities]);
 
   const stopCamera = () => {
     if (videoRef.current && videoRef.current.srcObject) {
@@ -116,12 +154,23 @@ export default function GardenMonitor({ onClose, aiModel }: GardenMonitorProps) 
     setIsScanning(true);
     try {
       const canvas = document.createElement('canvas');
-      canvas.width = videoRef.current.videoWidth;
-      canvas.height = videoRef.current.videoHeight;
+      const video = videoRef.current;
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
       
-      ctx.drawImage(videoRef.current, 0, 0);
+      // If we're using CSS zoom fallback, we need to capture the zoomed area
+      if (!zoomCapabilities && zoom > 1) {
+        const sWidth = video.videoWidth / zoom;
+        const sHeight = video.videoHeight / zoom;
+        const sx = (video.videoWidth - sWidth) / 2;
+        const sy = (video.videoHeight - sHeight) / 2;
+        ctx.drawImage(video, sx, sy, sWidth, sHeight, 0, 0, canvas.width, canvas.height);
+      } else {
+        ctx.drawImage(video, 0, 0);
+      }
+      
       const base64Image = canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
       
       const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
@@ -189,14 +238,54 @@ export default function GardenMonitor({ onClose, aiModel }: GardenMonitorProps) 
 
       {/* Main Viewport */}
       <div className="flex-1 relative overflow-hidden bg-stone-950 flex items-center justify-center">
+        {isCameraLoading && (
+          <div className="absolute inset-0 z-50 bg-stone-950 flex flex-col items-center justify-center gap-4">
+            <motion.div
+              animate={{ rotate: 360 }}
+              transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+            >
+              <Loader2 className="w-12 h-12 text-green-500" />
+            </motion.div>
+            <p className="text-stone-400 font-medium animate-pulse">Initializing Secure Feed...</p>
+          </div>
+        )}
+
         <video 
           ref={videoRef} 
           autoPlay 
           playsInline 
           muted 
-          className="w-full h-full object-cover opacity-80"
+          className={`w-full h-full object-cover transition-opacity duration-700 ${isStreaming ? 'opacity-80' : 'opacity-0'}`}
+          style={!zoomCapabilities ? { transform: `scale(${zoom})` } : {}}
         />
         <canvas ref={canvasRef} className="hidden" />
+
+        {/* Zoom Controls Overlay */}
+        {isStreaming && (
+          <div className="absolute right-6 top-1/2 -translate-y-1/2 flex flex-col gap-4 z-20">
+            <button 
+              onClick={() => setZoom(prev => Math.min(zoomCapabilities?.max || 3, prev + (zoomCapabilities?.step || 0.2)))}
+              className="p-3 bg-black/60 backdrop-blur-md border border-white/10 rounded-full text-white hover:bg-black/80 transition-all active:scale-90"
+            >
+              <ZoomIn className="w-5 h-5" />
+            </button>
+            <div className="h-32 w-10 bg-black/40 backdrop-blur-sm rounded-full border border-white/5 flex flex-col items-center py-2 relative">
+              <div className="absolute inset-y-4 w-0.5 bg-stone-700 rounded-full" />
+              <motion.div 
+                className="absolute w-3 h-3 bg-green-500 rounded-full shadow-[0_0_10px_rgba(34,197,94,0.5)]"
+                animate={{ 
+                  bottom: `${((zoom - (zoomCapabilities?.min || 1)) / ((zoomCapabilities?.max || 3) - (zoomCapabilities?.min || 1))) * 80 + 10}%` 
+                }}
+              />
+            </div>
+            <button 
+              onClick={() => setZoom(prev => Math.max(zoomCapabilities?.min || 1, prev - (zoomCapabilities?.step || 0.2)))}
+              className="p-3 bg-black/60 backdrop-blur-md border border-white/10 rounded-full text-white hover:bg-black/80 transition-all active:scale-90"
+            >
+              <ZoomOut className="w-5 h-5" />
+            </button>
+          </div>
+        )}
 
         {/* HUD Overlays */}
         <div className="absolute inset-0 pointer-events-none">

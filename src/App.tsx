@@ -39,6 +39,7 @@ import {
   ShieldCheck,
   ShieldAlert,
   Eye,
+  Search
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Toaster, toast } from 'sonner';
@@ -193,6 +194,7 @@ export default function App() {
   const [newTaskReminderMinutes, setNewTaskReminderMinutes] = useState<number>(0);
   const [newTaskFrequency, setNewTaskFrequency] = useState<'none' | 'daily' | 'weekly' | 'biweekly' | 'monthly'>('none');
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [showMaps, setShowMaps] = useState(false);
   const [showMonitor, setShowMonitor] = useState(false);
@@ -405,9 +407,36 @@ export default function App() {
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => setSelectedImage(reader.result as string);
-      reader.readAsDataURL(file);
+      processFile(file);
+    }
+  };
+
+  const processFile = (file: File) => {
+    if (!file.type.startsWith('image/')) {
+      toast.error("Please upload an image file.");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onloadend = () => setSelectedImage(reader.result as string);
+    reader.readAsDataURL(file);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) {
+      processFile(file);
     }
   };
 
@@ -434,6 +463,8 @@ export default function App() {
               }
             ],
             config: {
+              systemInstruction: "You are Botanica, an elite, world-class AI Master Horticulturist and Botanist. Provide highly accurate, scientifically backed, and advanced gardening diagnostics. Always prioritize organic, sustainable, and evidence-based methods. When using real-time search, synthesize the latest data into a comprehensive, expert-level response.",
+              temperature: 0.3,
               tools: useRealTimeSearch ? [{ googleSearch: {} }] : []
             }
           });
@@ -494,13 +525,28 @@ export default function App() {
     try {
       const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
       
+      const parts: any[] = [{ text: `User is asking about gardening at a ${reportDetailLevel} level. Question: ${input}` }];
+      
+      if (selectedImage) {
+        // Extract mime type from base64 string
+        const mimeType = selectedImage.match(/data:(.*?);base64/)?.[1] || "image/jpeg";
+        parts.push({
+          inlineData: {
+            mimeType: mimeType,
+            data: selectedImage.split(',')[1]
+          }
+        });
+      }
+
       const response = await ai.models.generateContent({
         model: aiModel,
         contents: [
-          { role: 'user', parts: [{ text: `User is asking about gardening at a ${reportDetailLevel} level. Question: ${input}` }] }
+          { role: 'user', parts }
         ],
         config: {
-          tools: [{ googleSearch: {} }]
+          systemInstruction: "You are Botanica, an elite, world-class AI Master Horticulturist and Botanist. Provide highly accurate, scientifically backed, and advanced gardening advice. Always prioritize organic, sustainable, and evidence-based methods. When using real-time search, synthesize the latest data into a comprehensive, expert-level response.",
+          temperature: 0.3,
+          tools: useRealTimeSearch ? [{ googleSearch: {} }] : []
         }
       });
 
@@ -556,182 +602,216 @@ export default function App() {
     return groups;
   };
 
-  if (!isChatOpen) {
-    return <LandingPage 
-      onStartChat={() => setIsChatOpen(true)} 
-      onOpenTasks={() => { setIsChatOpen(true); setShowTasks(true); }}
-      onOpenCareSchedule={() => { setIsChatOpen(true); setShowCareSchedule(true); }}
-      onOpenDiseaseGuide={() => { setIsChatOpen(true); setShowDiseaseGuide(true); }}
-      onOpenPestGuide={() => { setIsChatOpen(true); setShowPestGuide(true); }}
-      onOpenScanReport={() => { setIsChatOpen(true); setPendingScan(true); }}
-      onOpenMaps={() => { setIsChatOpen(true); setShowMaps(true); }}
-      onOpenMonitor={() => setShowMonitor(true)}
-      aiModel={aiModel}
-      onAiModelChange={setAiModel}
-      detailLevel={reportDetailLevel}
-      onDetailLevelChange={setReportDetailLevel}
-    />;
-  }
-
   return (
-    <div className="flex flex-col h-screen bg-stone-50 text-stone-900 font-sans">
-      <header className="bg-green-800 text-white p-4 shadow-md flex justify-between items-center z-10">
-        <div className="flex items-center gap-3">
-          <button onClick={() => setIsChatOpen(false)} className="p-2 hover:bg-green-700 rounded-full transition-colors mr-1">
-            <ArrowLeft className="w-5 h-5 text-green-100" />
-          </button>
-          <div className="bg-green-700 p-2 rounded-full hidden sm:block">
-            <Sprout className="w-6 h-6 text-green-100" />
-          </div>
-          <div>
-            <h1 className="text-xl font-semibold tracking-tight">Botanica</h1>
-            <p className="text-green-200 text-xs font-medium hidden sm:block">Your AI Gardening Assistant</p>
-          </div>
-        </div>
-        <div className="flex gap-2 items-center">
-          <div className="hidden lg:flex items-center gap-2 bg-green-900/30 px-3 py-1.5 rounded-full border border-green-700/50">
-            <span className="text-[10px] font-bold text-green-200 uppercase tracking-wider">Model:</span>
-            <select 
-              value={aiModel} 
-              onChange={(e) => setAiModel(e.target.value)}
-              className="bg-transparent text-xs font-bold text-white outline-none border-none cursor-pointer"
-            >
-              <option value="gemini-3-flash-preview" className="text-stone-800">Flash (Fast)</option>
-              <option value="gemini-3.1-pro-preview" className="text-stone-800">Pro (Accurate)</option>
-              <option value="gemini-3.1-flash-lite-preview" className="text-stone-800">Lite (Efficient)</option>
-            </select>
-          </div>
-          <input type="file" accept="image/*" className="hidden" ref={scanFileInputRef} onChange={handleScanImageSelect} />
-          <button onClick={() => scanFileInputRef.current?.click()} className="flex items-center gap-2 text-sm font-medium text-green-800 bg-green-100 hover:bg-white px-3 py-2 rounded-full transition-colors shadow-sm">
-            <ShieldCheck className="w-4 h-4 text-green-600" />
-            <span className="hidden sm:inline">Organic Health Diagnostics</span>
-          </button>
-          <button onClick={() => setShowTasks(true)} className="flex items-center gap-2 text-sm font-medium text-green-800 bg-green-100 hover:bg-white px-3 py-2 rounded-full transition-colors shadow-sm">
-            <ListTodo className="w-4 h-4 text-green-600" />
-            <span className="hidden sm:inline">Tasks</span>
-          </button>
-          <button onClick={() => setShowCareSchedule(true)} className="flex items-center gap-2 text-sm font-medium text-green-800 bg-green-100 hover:bg-white px-3 py-2 rounded-full transition-colors shadow-sm">
-            <Calendar className="w-4 h-4 text-green-600" />
-            <span className="hidden sm:inline">Care Schedule</span>
-          </button>
-          <button onClick={() => setShowMenu(true)} className="p-2 text-green-100 hover:bg-green-700 rounded-full transition-colors">
-            <Menu className="w-6 h-6" />
-          </button>
-        </div>
-      </header>
-
-      <main className="flex-1 overflow-hidden flex flex-col relative">
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          {messages.length === 0 && (
-            <div className="h-full flex flex-col items-center justify-center text-stone-400 space-y-4">
-              <Sparkles className="w-12 h-12 text-stone-200" />
-              <p className="text-sm">Ask me anything about your plants!</p>
+    <>
+      {!isChatOpen ? (
+        <LandingPage 
+          onStartChat={() => setIsChatOpen(true)} 
+          onOpenTasks={() => setShowTasks(true)}
+          onOpenCareSchedule={() => setShowCareSchedule(true)}
+          onOpenDiseaseGuide={() => setShowDiseaseGuide(true)}
+          onOpenPestGuide={() => setShowPestGuide(true)}
+          onOpenScanReport={() => { setIsChatOpen(true); setPendingScan(true); }}
+          onOpenMaps={() => setShowMaps(true)}
+          onOpenMonitor={() => setShowMonitor(true)}
+          aiModel={aiModel}
+          onAiModelChange={setAiModel}
+          detailLevel={reportDetailLevel}
+          onDetailLevelChange={setReportDetailLevel}
+        />
+      ) : (
+        <div className="flex flex-col h-screen bg-stone-50 text-stone-900 font-sans">
+          <header className="bg-green-800 text-white p-4 shadow-md flex justify-between items-center z-10">
+            <div className="flex items-center gap-3">
+              <button onClick={() => setIsChatOpen(false)} className="p-2 hover:bg-green-700 rounded-full transition-colors mr-1">
+                <ArrowLeft className="w-5 h-5 text-green-100" />
+              </button>
+              <div className="bg-green-700 p-2 rounded-full hidden sm:block">
+                <Sprout className="w-6 h-6 text-green-100" />
+              </div>
+              <div>
+                <h1 className="text-xl font-semibold tracking-tight">Botanica</h1>
+                <p className="text-green-200 text-xs font-medium hidden sm:block">Your AI Gardening Assistant</p>
+              </div>
             </div>
-          )}
-          {messages.map((msg, i) => (
-            <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-              <div className={`max-w-[80%] p-4 rounded-3xl ${msg.role === 'user' ? 'bg-green-600 text-white rounded-tr-none' : 'bg-white text-stone-800 rounded-tl-none shadow-sm border border-stone-100'}`}>
-                {msg.image && <img src={msg.image} alt="User upload" className="w-full h-48 object-cover rounded-xl mb-2" />}
-                <div className="markdown-body text-sm leading-relaxed">
-                  <Markdown>{msg.content}</Markdown>
+            <div className="flex gap-2 items-center">
+              <div className="hidden lg:flex items-center gap-2 bg-green-900/30 px-3 py-1.5 rounded-full border border-green-700/50">
+                <span className="text-[10px] font-bold text-green-200 uppercase tracking-wider">Model:</span>
+                <select 
+                  value={aiModel} 
+                  onChange={(e) => setAiModel(e.target.value)}
+                  className="bg-transparent text-xs font-bold text-white outline-none border-none cursor-pointer"
+                >
+                  <option value="gemini-3-flash-preview" className="text-stone-800">Flash (Fast)</option>
+                  <option value="gemini-3.1-pro-preview" className="text-stone-800">Pro (Accurate)</option>
+                  <option value="gemini-3.1-flash-lite-preview" className="text-stone-800">Lite (Efficient)</option>
+                </select>
+              </div>
+              <input type="file" accept="image/*" className="hidden" ref={scanFileInputRef} onChange={handleScanImageSelect} />
+              <button onClick={() => scanFileInputRef.current?.click()} className="flex items-center gap-2 text-sm font-medium text-green-800 bg-green-100 hover:bg-white px-3 py-2 rounded-full transition-colors shadow-sm">
+                <ShieldCheck className="w-4 h-4 text-green-600" />
+                <span className="hidden sm:inline">Organic Health Diagnostics</span>
+              </button>
+              <button onClick={() => setShowTasks(true)} className="flex items-center gap-2 text-sm font-medium text-green-800 bg-green-100 hover:bg-white px-3 py-2 rounded-full transition-colors shadow-sm">
+                <ListTodo className="w-4 h-4 text-green-600" />
+                <span className="hidden sm:inline">Tasks</span>
+              </button>
+              <button onClick={() => setShowCareSchedule(true)} className="flex items-center gap-2 text-sm font-medium text-green-800 bg-green-100 hover:bg-white px-3 py-2 rounded-full transition-colors shadow-sm">
+                <Calendar className="w-4 h-4 text-green-600" />
+                <span className="hidden sm:inline">Care Schedule</span>
+              </button>
+              <button onClick={() => setShowMenu(true)} className="p-2 text-green-100 hover:bg-green-700 rounded-full transition-colors">
+                <Menu className="w-6 h-6" />
+              </button>
+            </div>
+          </header>
+
+          <main 
+            className="flex-1 overflow-hidden flex flex-col relative"
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+          >
+            <AnimatePresence>
+              {isDragging && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="absolute inset-0 z-50 bg-green-600/20 backdrop-blur-[2px] border-4 border-dashed border-green-500 flex flex-col items-center justify-center pointer-events-none"
+                >
+                  <div className="bg-white p-8 rounded-3xl shadow-2xl flex flex-col items-center gap-4">
+                    <div className="w-16 h-16 bg-green-100 rounded-2xl flex items-center justify-center text-green-600">
+                      <ImageIcon className="w-8 h-8" />
+                    </div>
+                    <div className="text-center">
+                      <p className="text-xl font-bold text-stone-800">Drop to upload image</p>
+                      <p className="text-sm text-stone-500">Release to add this photo to your message</p>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              {messages.length === 0 && (
+                <div className="h-full flex flex-col items-center justify-center text-stone-400 space-y-4">
+                  <Sparkles className="w-12 h-12 text-stone-200" />
+                  <p className="text-sm">Ask me anything about your plants!</p>
                 </div>
-                {msg.groundingMetadata?.groundingChunks && (
-                  <div className="mt-3 pt-3 border-t border-stone-100">
-                    <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-2 flex items-center gap-1">
-                      <Link className="w-3 h-3" /> Sources
-                    </p>
-                    <div className="flex flex-wrap gap-2">
-                      {msg.groundingMetadata.groundingChunks.map((chunk: any, idx: number) => (
-                        chunk.web && (
-                          <a 
-                            key={idx} 
-                            href={chunk.web.uri} 
-                            target="_blank" 
-                            rel="noopener noreferrer"
-                            className="text-[10px] bg-stone-50 hover:bg-green-50 text-stone-600 hover:text-green-700 px-2 py-1 rounded-md border border-stone-100 transition-colors flex items-center gap-1 max-w-[200px] truncate"
+              )}
+              {messages.map((msg, i) => (
+                <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  <div className={`max-w-[80%] p-4 rounded-3xl ${msg.role === 'user' ? 'bg-green-600 text-white rounded-tr-none' : 'bg-white text-stone-800 rounded-tl-none shadow-sm border border-stone-100'}`}>
+                    {msg.image && <img src={msg.image} alt="User upload" className="w-full h-48 object-cover rounded-xl mb-2" />}
+                    <div className="markdown-body text-sm leading-relaxed">
+                      <Markdown>{msg.content}</Markdown>
+                    </div>
+                    {msg.groundingMetadata?.groundingChunks && (
+                      <div className="mt-4 pt-4 border-t border-stone-100/50">
+                        <div className="flex items-center gap-2 mb-3">
+                          <div className="bg-blue-500/10 p-1 rounded-md">
+                            <Search className="w-3 h-3 text-blue-600" />
+                          </div>
+                          <p className="text-[10px] font-bold text-stone-500 uppercase tracking-widest flex items-center gap-1">
+                            Real-Time Verified Sources
+                          </p>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {msg.groundingMetadata.groundingChunks.map((chunk: any, idx: number) => (
+                            chunk.web && (
+                              <a 
+                                key={idx} 
+                                href={chunk.web.uri} 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="text-[10px] bg-white hover:bg-blue-50 text-stone-600 hover:text-blue-700 px-2.5 py-1.5 rounded-lg border border-stone-200 hover:border-blue-200 transition-all shadow-sm flex items-center gap-1.5 max-w-[250px] group"
+                              >
+                                <Link className="w-3 h-3 opacity-50 group-hover:opacity-100" />
+                                <span className="truncate font-medium">{chunk.web.title || 'Source'}</span>
+                              </a>
+                            )
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {msg.isScanResult && !msg.feedback && (
+                      <div className="mt-4 pt-4 border-t border-stone-100 flex items-center gap-4">
+                        <span className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">Was this accurate?</span>
+                        <div className="flex gap-2">
+                          <button 
+                            onClick={() => handleFeedback(i, 'correct')}
+                            className="p-1.5 hover:bg-green-50 rounded-lg text-stone-400 hover:text-green-600 transition-colors"
+                            title="Correct"
                           >
-                            {chunk.web.title || 'Source'}
-                          </a>
-                        )
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {msg.isScanResult && !msg.feedback && (
-                  <div className="mt-4 pt-4 border-t border-stone-100 flex items-center gap-4">
-                    <span className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">Was this accurate?</span>
-                    <div className="flex gap-2">
-                      <button 
-                        onClick={() => handleFeedback(i, 'correct')}
-                        className="p-1.5 hover:bg-green-50 rounded-lg text-stone-400 hover:text-green-600 transition-colors"
-                        title="Correct"
-                      >
-                        <ThumbsUp className="w-4 h-4" />
-                      </button>
-                      <button 
-                        onClick={() => handleFeedback(i, 'incorrect')}
-                        className="p-1.5 hover:bg-red-50 rounded-lg text-stone-400 hover:text-red-600 transition-colors"
-                        title="Incorrect"
-                      >
-                        <ThumbsDown className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                )}
-                {msg.feedback && (
-                  <div className="mt-2 text-[10px] font-bold uppercase tracking-widest flex items-center gap-1">
-                    {msg.feedback === 'correct' ? (
-                      <span className="text-green-600 flex items-center gap-1"><ThumbsUp className="w-3 h-3" /> Feedback: Accurate</span>
-                    ) : (
-                      <span className="text-red-600 flex items-center gap-1"><ThumbsDown className="w-3 h-3" /> Feedback: Inaccurate</span>
+                            <ThumbsUp className="w-4 h-4" />
+                          </button>
+                          <button 
+                            onClick={() => handleFeedback(i, 'incorrect')}
+                            className="p-1.5 hover:bg-red-50 rounded-lg text-stone-400 hover:text-red-600 transition-colors"
+                            title="Incorrect"
+                          >
+                            <ThumbsDown className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    {msg.feedback && (
+                      <div className="mt-2 text-[10px] font-bold uppercase tracking-widest flex items-center gap-1">
+                        {msg.feedback === 'correct' ? (
+                          <span className="text-green-600 flex items-center gap-1"><ThumbsUp className="w-3 h-3" /> Feedback: Accurate</span>
+                        ) : (
+                          <span className="text-red-600 flex items-center gap-1"><ThumbsDown className="w-3 h-3" /> Feedback: Inaccurate</span>
+                        )}
+                      </div>
                     )}
                   </div>
-                )}
-              </div>
+                </div>
+              ))}
+              {isLoading && (
+                <div className="flex justify-start">
+                  <div className="bg-white p-4 rounded-3xl rounded-tl-none shadow-sm border border-stone-100 flex items-center gap-2">
+                    <div className="w-2 h-2 bg-green-600 rounded-full animate-bounce" />
+                    <div className="w-2 h-2 bg-green-600 rounded-full animate-bounce [animation-delay:0.2s]" />
+                    <div className="w-2 h-2 bg-green-600 rounded-full animate-bounce [animation-delay:0.4s]" />
+                  </div>
+                </div>
+              )}
             </div>
-          ))}
-          {isLoading && (
-            <div className="flex justify-start">
-              <div className="bg-white p-4 rounded-3xl rounded-tl-none shadow-sm border border-stone-100 flex items-center gap-2">
-                <div className="w-2 h-2 bg-green-600 rounded-full animate-bounce" />
-                <div className="w-2 h-2 bg-green-600 rounded-full animate-bounce [animation-delay:0.2s]" />
-                <div className="w-2 h-2 bg-green-600 rounded-full animate-bounce [animation-delay:0.4s]" />
-              </div>
-            </div>
-          )}
-        </div>
 
-        <footer className="bg-white border-t border-stone-200 p-4">
-          <div className="max-w-3xl mx-auto">
-            {selectedImage && (
-              <div className="mb-3 relative inline-block">
-                <img src={selectedImage} alt="Selected" className="h-20 w-20 object-cover rounded-lg border-2 border-green-500" />
-                <button onClick={() => setSelectedImage(null)} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 shadow-md"><X className="w-3 h-3" /></button>
+            <footer className="bg-white border-t border-stone-200 p-4">
+              <div className="max-w-3xl mx-auto">
+                {selectedImage && (
+                  <div className="mb-3 relative inline-block">
+                    <img src={selectedImage} alt="Selected" className="h-20 w-20 object-cover rounded-lg border-2 border-green-500" />
+                    <button onClick={() => setSelectedImage(null)} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 shadow-md"><X className="w-3 h-3" /></button>
+                  </div>
+                )}
+                <form onSubmit={handleSubmit} className="flex gap-2 items-end">
+                  <input type="file" accept="image/*" className="hidden" ref={fileInputRef} onChange={handleImageSelect} />
+                  <button type="button" onClick={() => fileInputRef.current?.click()} className="p-3 text-stone-500 hover:text-green-600 hover:bg-green-50 rounded-xl transition-colors shrink-0">
+                    <ImageIcon className="w-6 h-6" />
+                  </button>
+                  <div className="flex-1 relative">
+                    <textarea
+                      ref={textareaRef}
+                      value={input}
+                      onChange={(e) => setInput(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit(e); } }}
+                      placeholder="Ask a gardening question..."
+                      className="w-full bg-stone-100 border-transparent focus:bg-white focus:border-green-500 focus:ring-2 focus:ring-green-200 rounded-xl px-4 py-3 pr-12 resize-none min-h-[52px] outline-none transition-all"
+                      rows={1}
+                    />
+                    <button type="submit" disabled={isLoading || (!input.trim() && !selectedImage)} className="absolute right-2 bottom-2 p-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors">
+                      <Send className="w-4 h-4" />
+                    </button>
+                  </div>
+                </form>
               </div>
-            )}
-            <form onSubmit={handleSubmit} className="flex gap-2 items-end">
-              <input type="file" accept="image/*" className="hidden" ref={fileInputRef} onChange={handleImageSelect} />
-              <button type="button" onClick={() => fileInputRef.current?.click()} className="p-3 text-stone-500 hover:text-green-600 hover:bg-green-50 rounded-xl transition-colors shrink-0">
-                <ImageIcon className="w-6 h-6" />
-              </button>
-              <div className="flex-1 relative">
-                <textarea
-                  ref={textareaRef}
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit(e); } }}
-                  placeholder="Ask a gardening question..."
-                  className="w-full bg-stone-100 border-transparent focus:bg-white focus:border-green-500 focus:ring-2 focus:ring-green-200 rounded-xl px-4 py-3 pr-12 resize-none min-h-[52px] outline-none transition-all"
-                  rows={1}
-                />
-                <button type="submit" disabled={isLoading || (!input.trim() && !selectedImage)} className="absolute right-2 bottom-2 p-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors">
-                  <Send className="w-4 h-4" />
-                </button>
-              </div>
-            </form>
-          </div>
-        </footer>
-      </main>
+            </footer>
+          </main>
+        </div>
+      )}
 
       <AnimatePresence>
         {showCareSchedule && (
@@ -1323,6 +1403,6 @@ export default function App() {
       </AnimatePresence>
 
       <Toaster position="top-center" richColors />
-    </div>
+    </>
   );
 }
