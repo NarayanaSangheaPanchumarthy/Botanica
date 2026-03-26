@@ -38,6 +38,7 @@ import {
   Globe,
   ShieldCheck,
   ShieldAlert,
+  Eye,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Toaster, toast } from 'sonner';
@@ -47,6 +48,7 @@ import { onAuthStateChanged, User } from 'firebase/auth';
 import { collection, addDoc, deleteDoc, doc, onSnapshot, query, orderBy, setDoc } from 'firebase/firestore';
 import { db, auth } from './firebase';
 import LandingPage from './LandingPage';
+import GardenMonitor from './GardenMonitor';
 
 // Types
 interface Task {
@@ -193,6 +195,7 @@ export default function App() {
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [showMaps, setShowMaps] = useState(false);
+  const [showMonitor, setShowMonitor] = useState(false);
   const [aiModel, setAiModel] = useState<string>('gemini-3-flash-preview');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -562,6 +565,7 @@ export default function App() {
       onOpenPestGuide={() => { setIsChatOpen(true); setShowPestGuide(true); }}
       onOpenScanReport={() => { setIsChatOpen(true); setPendingScan(true); }}
       onOpenMaps={() => { setIsChatOpen(true); setShowMaps(true); }}
+      onOpenMonitor={() => setShowMonitor(true)}
       aiModel={aiModel}
       onAiModelChange={setAiModel}
       detailLevel={reportDetailLevel}
@@ -877,6 +881,11 @@ export default function App() {
 
                 {/* Other Links */}
                 <div className="grid grid-cols-2 gap-3">
+                  <button onClick={() => { setShowMenu(false); setShowMonitor(true); }} className="p-4 bg-stone-50 rounded-2xl border border-stone-100 hover:bg-white hover:border-green-200 transition-all text-left col-span-2">
+                    <Eye className="w-5 h-5 text-blue-500 mb-2" />
+                    <p className="text-xs font-bold text-stone-800">AI Garden Monitor</p>
+                    <p className="text-[10px] text-stone-500">Live surveillance & object counting</p>
+                  </button>
                   <button onClick={() => { setShowMenu(false); setShowDiseaseGuide(true); }} className="p-4 bg-stone-50 rounded-2xl border border-stone-100 hover:bg-white hover:border-green-200 transition-all text-left">
                     <ShieldAlert className="w-5 h-5 text-red-500 mb-2" />
                     <p className="text-xs font-bold text-stone-800">Disease Guide</p>
@@ -1301,6 +1310,15 @@ export default function App() {
               </div>
             </motion.div>
           </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showMonitor && (
+          <GardenMonitor 
+            onClose={() => setShowMonitor(false)} 
+            aiModel={aiModel}
+          />
         )}
       </AnimatePresence>
 

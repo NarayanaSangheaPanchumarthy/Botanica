@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Leaf, Sprout, MapPin, Scan, Brain, ShieldCheck, ChevronDown, ArrowRight, HelpCircle, Map, Star, Droplets, Sun, Thermometer, Twitter, Facebook, Linkedin, Link, ListTodo, Activity, Bug, Calendar, Menu, Search, X as CloseIcon } from 'lucide-react';
+import { Leaf, Sprout, MapPin, Scan, Brain, ShieldCheck, ChevronDown, ArrowRight, HelpCircle, Map, Star, Droplets, Sun, Thermometer, Twitter, Facebook, Linkedin, Link, ListTodo, Activity, Bug, Calendar, Menu, Search, X as CloseIcon, Eye } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface LandingPageProps {
@@ -10,6 +10,7 @@ interface LandingPageProps {
   onOpenScanReport: () => void;
   onOpenCareSchedule: () => void;
   onOpenMaps: () => void;
+  onOpenMonitor: () => void;
   aiModel: string;
   onAiModelChange: (model: string) => void;
   detailLevel: 'Brief' | 'Detailed' | 'Expert';
@@ -64,6 +65,7 @@ export default function LandingPage({
   onOpenScanReport,
   onOpenCareSchedule,
   onOpenMaps,
+  onOpenMonitor,
   aiModel,
   onAiModelChange,
   detailLevel,
@@ -141,6 +143,13 @@ export default function LandingPage({
                         >
                           <ShieldCheck className="w-4 h-4 text-green-600" />
                           Organic Health Diagnostics
+                        </button>
+                        <button
+                          onClick={() => { onOpenMonitor(); setIsMenuOpen(false); }}
+                          className="w-full flex items-center gap-3 px-4 py-3 text-sm font-medium text-stone-700 hover:bg-green-50 hover:text-green-800 rounded-xl transition-colors"
+                        >
+                          <Eye className="w-4 h-4 text-green-600" />
+                          AI Garden Monitor
                         </button>
                         <button
                           onClick={() => { onOpenCareSchedule(); setIsMenuOpen(false); }}
@@ -350,7 +359,7 @@ export default function LandingPage({
             <p className="mt-4 text-lg text-stone-600">More than just a plant dictionary. Botanica sees, thinks, and connects you locally.</p>
           </div>
 
-          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-8">
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
             {/* Feature 1 */}
             <button 
               onClick={onOpenScanReport}
@@ -362,6 +371,20 @@ export default function LandingPage({
               <h3 className="text-xl font-bold text-stone-900 mb-3">Organic Health Diagnostics</h3>
               <p className="text-stone-600 leading-relaxed">
                 Detect pests, diseases, and distress early. Botanica analyzes the visual health of your plants and provides actionable, organic treatment plans to keep your garden thriving safely.
+              </p>
+            </button>
+
+            {/* Feature 5 - Garden Monitor */}
+            <button 
+              onClick={onOpenMonitor}
+              className="bg-white rounded-3xl p-8 border border-stone-100 shadow-sm hover:shadow-md transition-all active:scale-[0.98] text-left group cursor-pointer ring-2 ring-green-500/20"
+            >
+              <div className="w-14 h-14 bg-blue-50 rounded-2xl flex items-center justify-center mb-6 text-blue-700 group-hover:bg-blue-100 transition-colors">
+                <Eye className="w-7 h-7" />
+              </div>
+              <h3 className="text-xl font-bold text-stone-900 mb-3">AI Garden Monitor</h3>
+              <p className="text-stone-600 leading-relaxed">
+                Turn your device into a smart motion detector. Use YOLO-style AI scanning to count plants, crops, fruits, trees, and even detect animals in real-time.
               </p>
             </button>
 
