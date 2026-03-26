@@ -233,12 +233,12 @@ export default function LandingPage({
       <section className="relative pt-32 pb-40 overflow-hidden">
         <div className="absolute inset-0 z-0">
           <img 
-            src="https://images.unsplash.com/photo-1585320806297-9794b3e4ce88?auto=format&fit=crop&q=80&w=2000" 
-            alt="Beautiful landscape garden" 
+            src="https://images.unsplash.com/photo-1465146344425-f00d5f5c8f07?auto=format&fit=crop&q=80&w=2000" 
+            alt="Beautiful flower landscape" 
             className="w-full h-full object-cover"
             referrerPolicy="no-referrer"
           />
-          <div className="absolute inset-0 bg-gradient-to-b from-green-950/70 via-green-900/50 to-stone-50"></div>
+          <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-black/30 to-stone-50"></div>
         </div>
         
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10 text-center mt-10">
