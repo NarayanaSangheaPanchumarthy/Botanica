@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState } from 'react';
-import { Camera, X, Shield, Activity, RefreshCw, AlertTriangle, Eye, EyeOff, Loader2, ZoomIn, ZoomOut, Search } from 'lucide-react';
+import { Camera, X, Shield, Activity, RefreshCw, AlertTriangle, Eye, EyeOff, Loader2, ZoomIn, ZoomOut, Search, Sliders, SwitchCamera } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { GoogleGenAI, Type } from "@google/genai";
 import { toast } from 'sonner';
@@ -9,12 +9,17 @@ interface GardenMonitorProps {
   aiModel: string;
 }
 
+interface DetectedItem {
+  count: number;
+  confidence: number;
+}
+
 interface ScanResult {
-  plants: number;
-  crops: number;
-  fruits: number;
-  trees: number;
-  animals: number;
+  plants: DetectedItem;
+  crops: DetectedItem;
+  fruits: DetectedItem;
+  trees: DetectedItem;
+  animals: DetectedItem;
   timestamp: number;
 }
 
@@ -27,11 +32,18 @@ export default function GardenMonitor({ onClose, aiModel }: GardenMonitorProps) 
   const [lastResult, setLastResult] = useState<ScanResult | null>(null);
   const [isAutoMode, setIsAutoMode] = useState(false);
   const [motionDetected, setMotionDetected] = useState(false);
+  const [motionSensitivity, setMotionSensitivity] = useState(70); // 1 to 100
+  const [autoScanInterval, setAutoScanInterval] = useState(0); // 0 = motion only, >0 = minutes
+  const [brightness, setBrightness] = useState(100);
+  const [contrast, setContrast] = useState(100);
+  const [saturation, setSaturation] = useState(100);
   const [zoom, setZoom] = useState(1);
   const [zoomCapabilities, setZoomCapabilities] = useState<{ min: number; max: number; step: number } | null>(null);
+  const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
   
   const lastFrameRef = useRef<ImageData | null>(null);
-  const motionThreshold = 50; // Sensitivity
+  const lastProcessTimeRef = useRef<number>(0);
+  const cooldownRef = useRef<number>(0);
   const scanIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
@@ -40,13 +52,32 @@ export default function GardenMonitor({ onClose, aiModel }: GardenMonitorProps) 
       stopCamera();
       if (scanIntervalRef.current) clearInterval(scanIntervalRef.current);
     };
-  }, []);
+  }, [facingMode]);
+
+  // Auto-scan interval
+  useEffect(() => {
+    if (!isAutoMode || autoScanInterval === 0) return;
+    
+    const intervalId = setInterval(() => {
+      if (!isScanning) {
+        handleScan();
+      }
+    }, autoScanInterval * 60 * 1000);
+    
+    return () => clearInterval(intervalId);
+  }, [isAutoMode, autoScanInterval, isScanning]);
 
   const startCamera = async () => {
     setIsCameraLoading(true);
     try {
+      // Stop existing stream if any
+      if (videoRef.current && videoRef.current.srcObject) {
+        const stream = videoRef.current.srcObject as MediaStream;
+        stream.getTracks().forEach(track => track.stop());
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } } 
+        video: { facingMode: facingMode, width: { ideal: 1920 }, height: { ideal: 1080 } } 
       });
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
@@ -100,21 +131,31 @@ export default function GardenMonitor({ onClose, aiModel }: GardenMonitorProps) 
     setIsStreaming(false);
   };
 
-  // Simple motion detection
+  // Advanced motion detection with adjustable sensitivity and noise reduction
   useEffect(() => {
     if (!isStreaming || !isAutoMode) return;
 
-    const detectMotion = () => {
+    let animationId: number;
+
+    const detectMotion = (timestamp: number) => {
       if (!videoRef.current || !canvasRef.current || !isAutoMode) return;
       
+      // Process at most 5 frames per second (every 200ms) to allow motion to accumulate and reduce CPU load
+      if (timestamp - lastProcessTimeRef.current < 200) {
+        animationId = requestAnimationFrame(detectMotion);
+        return;
+      }
+      lastProcessTimeRef.current = timestamp;
+
       const video = videoRef.current;
       const canvas = canvasRef.current;
       const ctx = canvas.getContext('2d', { willReadFrequently: true });
       
       if (!ctx) return;
 
-      canvas.width = video.videoWidth / 4; // Downscale for performance
-      canvas.height = video.videoHeight / 4;
+      // Downscale significantly for performance and to naturally blur out minor noise/flicker
+      canvas.width = video.videoWidth / 8; 
+      canvas.height = video.videoHeight / 8;
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
       
       const currentFrame = ctx.getImageData(0, 0, canvas.width, canvas.height);
@@ -124,29 +165,43 @@ export default function GardenMonitor({ onClose, aiModel }: GardenMonitorProps) 
         const data1 = lastFrameRef.current.data;
         const data2 = currentFrame.data;
         
+        // Higher color threshold ignores minor lighting changes and camera noise
+        const colorThreshold = 60; 
+        
         for (let i = 0; i < data1.length; i += 4) {
           const rDiff = Math.abs(data1[i] - data2[i]);
           const gDiff = Math.abs(data1[i+1] - data2[i+1]);
           const bDiff = Math.abs(data1[i+2] - data2[i+2]);
-          if (rDiff + gDiff + bDiff > 100) diff++;
+          if (rDiff + gDiff + bDiff > colorThreshold) diff++;
         }
         
         const motionPercent = (diff / (canvas.width * canvas.height)) * 100;
-        if (motionPercent > 2 && !isScanning) {
+        
+        // Map sensitivity (1-100) to a threshold (10% to 0.5% of pixels changed)
+        // 100 sensitivity -> 0.5% threshold (very sensitive)
+        // 1 sensitivity -> 10% threshold (requires massive movement)
+        const threshold = 10 - (motionSensitivity / 100) * 9.5;
+        
+        if (motionPercent > threshold) {
           setMotionDetected(true);
-          handleScan(); // Trigger AI scan on motion
+          
+          // Add a 10-second cooldown so we don't spam AI scans
+          if (!isScanning && timestamp - cooldownRef.current > 10000) {
+            cooldownRef.current = timestamp;
+            handleScan(); // Trigger AI scan on significant motion
+          }
         } else {
           setMotionDetected(false);
         }
       }
       
       lastFrameRef.current = currentFrame;
-      requestAnimationFrame(detectMotion);
+      animationId = requestAnimationFrame(detectMotion);
     };
 
-    const animationId = requestAnimationFrame(detectMotion);
+    animationId = requestAnimationFrame(detectMotion);
     return () => cancelAnimationFrame(animationId);
-  }, [isStreaming, isAutoMode, isScanning]);
+  }, [isStreaming, isAutoMode, isScanning, motionSensitivity]);
 
   const handleScan = async () => {
     if (isScanning || !videoRef.current) return;
@@ -174,6 +229,16 @@ export default function GardenMonitor({ onClose, aiModel }: GardenMonitorProps) 
       const base64Image = canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
       
       const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      
+      const itemSchema = {
+        type: Type.OBJECT,
+        properties: {
+          count: { type: Type.INTEGER },
+          confidence: { type: Type.INTEGER, description: "Confidence score from 0 to 100" }
+        },
+        required: ["count", "confidence"]
+      };
+
       const response = await ai.models.generateContent({
         model: "gemini-3-flash-preview",
         contents: [
@@ -184,7 +249,7 @@ export default function GardenMonitor({ onClose, aiModel }: GardenMonitorProps) 
             }
           },
           {
-            text: "You are a specialized garden monitoring AI. Scan this garden view and count the following objects: plants, crops, fruits, trees, and animals. Return ONLY a JSON object with these keys: plants, crops, fruits, trees, animals. If none are found, use 0."
+            text: "You are a specialized garden monitoring AI. Scan this garden view and count the following objects: plants, crops, fruits, trees, and animals. Also provide a confidence score (0-100) for your detection of each category. Return ONLY a JSON object with these keys: plants, crops, fruits, trees, animals. If none are found, use count 0 and confidence 0."
           }
         ],
         config: {
@@ -192,11 +257,11 @@ export default function GardenMonitor({ onClose, aiModel }: GardenMonitorProps) 
           responseSchema: {
             type: Type.OBJECT,
             properties: {
-              plants: { type: Type.INTEGER },
-              crops: { type: Type.INTEGER },
-              fruits: { type: Type.INTEGER },
-              trees: { type: Type.INTEGER },
-              animals: { type: Type.INTEGER }
+              plants: itemSchema,
+              crops: itemSchema,
+              fruits: itemSchema,
+              trees: itemSchema,
+              animals: itemSchema
             },
             required: ["plants", "crops", "fruits", "trees", "animals"]
           }
@@ -206,8 +271,8 @@ export default function GardenMonitor({ onClose, aiModel }: GardenMonitorProps) 
       const result = JSON.parse(response.text);
       setLastResult({ ...result, timestamp: Date.now() });
       
-      if (result.animals > 0) {
-        toast.warning(`Motion Alert: ${result.animals} animal(s) detected in the garden!`);
+      if (result.animals?.count > 0) {
+        toast.warning(`Motion Alert: ${result.animals.count} animal(s) detected with ${result.animals.confidence}% confidence!`);
       }
     } catch (err) {
       console.error("Scan error:", err);
@@ -237,7 +302,7 @@ export default function GardenMonitor({ onClose, aiModel }: GardenMonitorProps) 
       </div>
 
       {/* Main Viewport */}
-      <div className="flex-1 relative overflow-hidden bg-stone-950 flex items-center justify-center">
+      <div className={`flex-1 relative overflow-hidden bg-stone-950 flex items-center justify-center transition-all duration-500 ${motionDetected ? 'ring-inset ring-8 ring-red-500/80 shadow-[inset_0_0_50px_rgba(239,68,68,0.8)]' : ''}`}>
         {isCameraLoading && (
           <div className="absolute inset-0 z-50 bg-stone-950 flex flex-col items-center justify-center gap-4">
             <motion.div
@@ -256,9 +321,21 @@ export default function GardenMonitor({ onClose, aiModel }: GardenMonitorProps) 
           playsInline 
           muted 
           className={`w-full h-full object-cover transition-opacity duration-700 ${isStreaming ? 'opacity-80' : 'opacity-0'}`}
-          style={!zoomCapabilities ? { transform: `scale(${zoom})` } : {}}
+          style={{
+            ...(!zoomCapabilities ? { transform: `scale(${zoom})` } : {}),
+            filter: `brightness(${brightness}%) contrast(${contrast}%) saturate(${saturation}%)`
+          }}
         />
         <canvas ref={canvasRef} className="hidden" />
+
+        {/* Camera Toggle Button */}
+        <button 
+          onClick={() => setFacingMode(prev => prev === 'environment' ? 'user' : 'environment')}
+          className="absolute top-6 right-6 p-3 bg-black/60 backdrop-blur-md border border-white/10 rounded-full text-white hover:bg-black/80 transition-all active:scale-90 z-30"
+          title="Switch Camera"
+        >
+          <SwitchCamera className="w-6 h-6" />
+        </button>
 
         {/* Zoom Controls Overlay */}
         {isStreaming && (
@@ -318,15 +395,20 @@ export default function GardenMonitor({ onClose, aiModel }: GardenMonitorProps) 
         {/* Stats Overlay */}
         <div className="absolute bottom-24 left-4 right-4 grid grid-cols-5 gap-2">
           {[
-            { label: 'Plants', value: lastResult?.plants ?? 0, color: 'text-green-400' },
-            { label: 'Crops', value: lastResult?.crops ?? 0, color: 'text-emerald-400' },
-            { label: 'Fruits', value: lastResult?.fruits ?? 0, color: 'text-orange-400' },
-            { label: 'Trees', value: lastResult?.trees ?? 0, color: 'text-lime-400' },
-            { label: 'Animals', value: lastResult?.animals ?? 0, color: 'text-red-400' },
+            { label: 'Plants', data: lastResult?.plants, color: 'text-green-400' },
+            { label: 'Crops', data: lastResult?.crops, color: 'text-emerald-400' },
+            { label: 'Fruits', data: lastResult?.fruits, color: 'text-orange-400' },
+            { label: 'Trees', data: lastResult?.trees, color: 'text-lime-400' },
+            { label: 'Animals', data: lastResult?.animals, color: 'text-red-400' },
           ].map((stat, i) => (
-            <div key={i} className="bg-black/60 backdrop-blur-md border border-white/10 p-3 rounded-2xl flex flex-col items-center">
-              <span className={`text-xl font-black ${stat.color}`}>{stat.value}</span>
+            <div key={i} className="bg-black/60 backdrop-blur-md border border-white/10 p-3 rounded-2xl flex flex-col items-center w-full">
+              <span className={`text-xl font-black ${stat.color}`}>{stat.data?.count ?? 0}</span>
               <span className="text-[8px] uppercase font-bold text-stone-400 tracking-tighter">{stat.label}</span>
+              {stat.data && (
+                <div className="w-full mt-2 bg-stone-800 rounded-full h-1 overflow-hidden" title={`Confidence: ${stat.data.confidence}%`}>
+                  <div className={`h-full ${stat.color.replace('text-', 'bg-')}`} style={{ width: `${stat.data.confidence}%` }} />
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -334,17 +416,80 @@ export default function GardenMonitor({ onClose, aiModel }: GardenMonitorProps) 
 
       {/* Controls */}
       <div className="p-6 bg-stone-900/90 backdrop-blur-xl border-t border-stone-800 flex items-center justify-between">
-        <button 
-          onClick={() => setIsAutoMode(!isAutoMode)}
-          className={`flex items-center gap-3 px-6 py-3 rounded-2xl font-bold transition-all ${
-            isAutoMode 
-              ? 'bg-red-500 text-white shadow-[0_0_20px_rgba(239,68,68,0.3)]' 
-              : 'bg-stone-800 text-stone-400 hover:bg-stone-700'
-          }`}
-        >
-          {isAutoMode ? <Eye className="w-5 h-5" /> : <EyeOff className="w-5 h-5" />}
-          {isAutoMode ? 'SURVEILLANCE ON' : 'AUTO SCAN OFF'}
-        </button>
+        <div className="relative flex flex-col gap-3">
+          <button 
+            onClick={() => setIsAutoMode(!isAutoMode)}
+            className={`flex items-center gap-3 px-6 py-3 rounded-2xl font-bold transition-all ${
+              isAutoMode 
+                ? 'bg-red-500 text-white shadow-[0_0_20px_rgba(239,68,68,0.3)]' 
+                : 'bg-stone-800 text-stone-400 hover:bg-stone-700'
+            }`}
+          >
+            {isAutoMode ? <Eye className="w-5 h-5" /> : <EyeOff className="w-5 h-5" />}
+            {isAutoMode ? 'SURVEILLANCE ON' : 'AUTO SCAN OFF'}
+          </button>
+          
+          <AnimatePresence>
+            {isAutoMode && (
+              <motion.div 
+                initial={{ opacity: 0, y: 20, scale: 0.95 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 20, scale: 0.95 }}
+                className="absolute bottom-full left-0 mb-4 w-72 bg-stone-900/95 backdrop-blur-xl border border-stone-700 p-5 rounded-2xl shadow-2xl flex flex-col gap-5 z-50"
+              >
+                <div className="flex items-center gap-2 mb-1 border-b border-stone-800 pb-3">
+                  <Sliders className="w-4 h-4 text-stone-400" />
+                  <span className="text-xs font-bold text-white uppercase tracking-wider">Camera Settings</span>
+                </div>
+                
+                {/* Sensitivity */}
+                <div className="flex flex-col gap-2">
+                  <div className="flex justify-between items-center">
+                    <span className="text-[10px] text-stone-400 uppercase font-bold tracking-widest">Motion Sensitivity</span>
+                    <span className="text-[10px] text-stone-300 font-mono">{motionSensitivity}%</span>
+                  </div>
+                  <input type="range" min="1" max="100" value={motionSensitivity} onChange={(e) => setMotionSensitivity(Number(e.target.value))} className="w-full h-1.5 bg-stone-700 rounded-lg appearance-none cursor-pointer accent-red-500" />
+                </div>
+                
+                {/* Auto Scan Interval */}
+                <div className="flex flex-col gap-2">
+                  <div className="flex justify-between items-center">
+                    <span className="text-[10px] text-stone-400 uppercase font-bold tracking-widest">Auto Scan</span>
+                    <span className="text-[10px] text-stone-300 font-mono">{autoScanInterval === 0 ? 'Motion Only' : `Every ${autoScanInterval}m`}</span>
+                  </div>
+                  <input type="range" min="0" max="60" step="5" value={autoScanInterval} onChange={(e) => setAutoScanInterval(Number(e.target.value))} className="w-full h-1.5 bg-stone-700 rounded-lg appearance-none cursor-pointer accent-green-500" />
+                </div>
+
+                {/* Brightness */}
+                <div className="flex flex-col gap-2">
+                  <div className="flex justify-between items-center">
+                    <span className="text-[10px] text-stone-400 uppercase font-bold tracking-widest">Brightness</span>
+                    <span className="text-[10px] text-stone-300 font-mono">{brightness}%</span>
+                  </div>
+                  <input type="range" min="50" max="150" value={brightness} onChange={(e) => setBrightness(Number(e.target.value))} className="w-full h-1.5 bg-stone-700 rounded-lg appearance-none cursor-pointer accent-stone-300" />
+                </div>
+
+                {/* Contrast */}
+                <div className="flex flex-col gap-2">
+                  <div className="flex justify-between items-center">
+                    <span className="text-[10px] text-stone-400 uppercase font-bold tracking-widest">Contrast</span>
+                    <span className="text-[10px] text-stone-300 font-mono">{contrast}%</span>
+                  </div>
+                  <input type="range" min="50" max="150" value={contrast} onChange={(e) => setContrast(Number(e.target.value))} className="w-full h-1.5 bg-stone-700 rounded-lg appearance-none cursor-pointer accent-stone-300" />
+                </div>
+
+                {/* Saturation */}
+                <div className="flex flex-col gap-2">
+                  <div className="flex justify-between items-center">
+                    <span className="text-[10px] text-stone-400 uppercase font-bold tracking-widest">Saturation</span>
+                    <span className="text-[10px] text-stone-300 font-mono">{saturation}%</span>
+                  </div>
+                  <input type="range" min="0" max="200" value={saturation} onChange={(e) => setSaturation(Number(e.target.value))} className="w-full h-1.5 bg-stone-700 rounded-lg appearance-none cursor-pointer accent-stone-300" />
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
 
         <button 
           onClick={handleScan}
