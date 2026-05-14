@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Leaf, Sprout, MapPin, Scan, Brain, ShieldCheck, ChevronDown, ArrowRight, HelpCircle, Map, Star, Droplets, Sun, Thermometer, Twitter, Facebook, Linkedin, Link, ListTodo, Activity, Bug, Calendar, Menu, Search, X as CloseIcon, Eye } from 'lucide-react';
+import { Leaf, Sprout, MapPin, Scan, Brain, ShieldCheck, ChevronDown, ArrowRight, HelpCircle, Map, Star, Droplets, Sun, Thermometer, Twitter, Facebook, Linkedin, Link, ListTodo, Activity, Bug, Calendar, Menu, Search, X as CloseIcon, Eye, Calculator, TestTube, Archive, Play, Pause } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface LandingPageProps {
@@ -11,6 +11,8 @@ interface LandingPageProps {
   onOpenCareSchedule: () => void;
   onOpenMaps: () => void;
   onOpenMonitor: () => void;
+  onOpenPlantJournal: () => void;
+  onOpenMorphologyCalculator: () => void;
   aiModel: string;
   onAiModelChange: (model: string) => void;
   detailLevel: 'Brief' | 'Detailed' | 'Expert';
@@ -19,20 +21,24 @@ interface LandingPageProps {
 
 const FAQS = [
   {
-    question: "How accurate is the plant identification?",
-    answer: "Botanica uses advanced AI vision models (Gemini 3.1 Pro) with high-thinking capabilities. It can accurately identify thousands of plant species, and even scan and count multiple distinct plants in a single photo."
+    question: "What exactly can the Botanica chatbot do?",
+    answer: "Botanica is a specialized AI master gardener. It can guide you through using its built-in tools, diagnose plant diseases, provide real-time local gardening recommendations, analyze uploaded pictures of plants, and offer detailed information on composting (how to make it, where to store it, and its benefits for growing plants and fruits)."
   },
   {
-    question: "Can it help me find where to buy plants?",
-    answer: "Yes! Botanica integrates with real-time Google Maps data. If you ask for local nurseries, garden centers, or community gardens, it will provide accurate, up-to-date local recommendations with direct links."
+    question: "Will Botanica answer non-gardening questions?",
+    answer: "No. Botanica is strictly programmed to only provide outputs related to plants, gardening, plant disease diagnosis, local real-time recommendations, photo analysis of plants, and composting. It will politely decline any general or unrelated requests."
   },
   {
-    question: "Is the pest treatment advice safe?",
-    answer: "Absolutely. Botanica is specifically instructed to prioritize organic, safe, and environmentally friendly treatment methods for all pest and disease diagnoses."
+    question: "How accurate is the photo analysis and plant identification?",
+    answer: "Botanica uses advanced AI vision models. You can upload a picture of a plant, and it will analyze the morphology (like sepal and petal dimensions), identify the species, and diagnose potential health issues like pests or diseases."
   },
   {
-    question: "Do I need to create an account?",
-    answer: "No account is required! You can start chatting, scanning plants, and getting expert gardening advice right away."
+    question: "Can it help me find local plant nurseries or community gardens?",
+    answer: "Yes! Botanica integrates with real-time Google Maps data. Simply ask for local nurseries, garden centers, or community gardens, and it will provide accurate, up-to-date local recommendations."
+  },
+  {
+    question: "Does Botanica teach me about composting and organic treatments?",
+    answer: "Absolutely. Botanica is designed to provide end-to-end information on organic growing, including comprehensive academic guides on how to make compost, optimal C:N ratios, where to store it, and how to treat pests using safe, organic methods."
   }
 ];
 
@@ -57,6 +63,16 @@ const SHOWCASE_PLANTS = [
   }
 ];
 
+const RECENT_PHOTOS = [
+  'https://images.unsplash.com/photo-1550534791-2677533605ab?auto=format&fit=crop&q=80&w=800', // Iris
+  'https://images.unsplash.com/photo-1565011523534-747a8601f10a?auto=format&fit=crop&q=80&w=800', // Lavender
+  'https://images.unsplash.com/photo-1599148401005-fe6d7497cb5e?auto=format&fit=crop&q=80&w=800', // Japanese Maple
+  'https://images.unsplash.com/photo-1614594975525-e45190c55d0b?auto=format&fit=crop&q=80&w=800', // Monstera
+  'https://images.unsplash.com/photo-1628155930542-3c7a64e2c833?auto=format&fit=crop&q=80&w=800', // Violet Flower
+  'https://images.unsplash.com/photo-1518531933037-91b2f5f229cc?auto=format&fit=crop&q=80&w=800', // Green Leaf
+  'https://images.unsplash.com/photo-1491147334573-44cbb4602074?auto=format&fit=crop&q=80&w=800', // Forest Fern
+];
+
 export default function LandingPage({ 
   onStartChat, 
   onOpenTasks, 
@@ -66,6 +82,8 @@ export default function LandingPage({
   onOpenCareSchedule,
   onOpenMaps,
   onOpenMonitor,
+  onOpenPlantJournal,
+  onOpenMorphologyCalculator,
   aiModel,
   onAiModelChange,
   detailLevel,
@@ -150,6 +168,20 @@ export default function LandingPage({
                         >
                           <Eye className="w-4 h-4 text-green-600" />
                           AI Garden Monitor
+                        </button>
+                        <button
+                          onClick={() => { onOpenPlantJournal(); setIsMenuOpen(false); }}
+                          className="w-full flex items-center gap-3 px-4 py-3 text-sm font-medium text-stone-700 hover:bg-green-50 hover:text-green-800 rounded-xl transition-colors"
+                        >
+                          <Leaf className="w-4 h-4 text-green-600" />
+                          Plant Journal
+                        </button>
+                        <button
+                          onClick={() => { onOpenMorphologyCalculator(); setIsMenuOpen(false); }}
+                          className="w-full flex items-center gap-3 px-4 py-3 text-sm font-medium text-stone-700 hover:bg-green-50 hover:text-green-800 rounded-xl transition-colors"
+                        >
+                          <Calculator className="w-4 h-4 text-green-600" />
+                          Morphology Calculator
                         </button>
                         <button
                           onClick={() => { onOpenCareSchedule(); setIsMenuOpen(false); }}
@@ -352,11 +384,45 @@ export default function LandingPage({
       </section>
 
       {/* Features Section */}
-      <section className="py-24 bg-stone-50">
+      <section className="py-24 bg-stone-50 overflow-hidden">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          {/* Top Slideshow */}
+          <div className="mb-20 relative">
+            <div className="flex gap-4 overflow-hidden py-4 -mx-4 px-4 overflow-x-hidden">
+              <motion.div 
+                animate={{ 
+                  x: ["0%", "-50%"],
+                }}
+                transition={{ 
+                  duration: 35, 
+                  repeat: Infinity, 
+                  ease: "linear" 
+                }}
+                className="flex gap-6 shrink-0"
+              >
+                {[...RECENT_PHOTOS, ...RECENT_PHOTOS].map((src, idx) => (
+                  <div key={idx} className="w-72 h-80 rounded-[2rem] overflow-hidden shadow-xl border-8 border-white shrink-0 group hover:scale-105 transition-transform duration-500 relative">
+                    <img 
+                      src={src} 
+                      alt={`Botanical Display ${idx % RECENT_PHOTOS.length}`}
+                      className="w-full h-full object-cover"
+                      referrerPolicy="no-referrer"
+                      loading="eager"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+                  </div>
+                ))}
+              </motion.div>
+            </div>
+            
+            {/* Soft Edge Fades */}
+            <div className="absolute top-0 bottom-0 left-0 w-40 bg-gradient-to-r from-stone-50 via-stone-50/80 to-transparent z-10 pointer-events-none" />
+            <div className="absolute top-0 bottom-0 right-0 w-40 bg-gradient-to-l from-stone-50 via-stone-50/80 to-transparent z-10 pointer-events-none" />
+          </div>
+
           <div className="text-center mb-16">
-            <h2 className="text-3xl font-bold text-stone-900">AI-Driven Real-Time Intelligence</h2>
-            <p className="mt-4 text-lg text-stone-600">More than just a plant dictionary. Botanica sees, thinks, and connects you locally.</p>
+            <h2 className="text-4xl font-bold text-stone-900 tracking-tight">AI-Driven Real-Time Intelligence</h2>
+            <p className="mt-4 text-xl text-stone-600 max-w-2xl mx-auto">More than just a plant dictionary. <span className="text-green-700 font-semibold">Botanica sees, thinks, and connects you locally.</span></p>
           </div>
 
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
@@ -433,8 +499,135 @@ export default function LandingPage({
         </div>
       </section>
 
+      {/* Composting Academic Section */}
+      <section className="py-24 bg-stone-50 border-t border-stone-200">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center mb-16">
+            <h2 className="text-3xl font-bold text-stone-900 mb-4 flex items-center justify-center gap-3">
+              <Leaf className="w-8 h-8 text-emerald-600" />
+              The Science of Composting
+            </h2>
+            <p className="text-lg text-stone-600 max-w-2xl mx-auto">
+              A comprehensive academic and digital guide to managing organic breakdown. 
+              Understand how to optimize the decomposition process to produce rich, nutrient-dense humus for your plants.
+            </p>
+          </div>
+
+          <div className="grid md:grid-cols-2 gap-8">
+            <div className="bg-white rounded-3xl p-8 border border-stone-200 shadow-sm">
+              <div className="w-12 h-12 bg-amber-100 rounded-xl flex items-center justify-center text-amber-700 mb-6">
+                <Sprout className="w-6 h-6" />
+              </div>
+              <h3 className="text-xl font-bold text-stone-900 mb-3">How it is Useful for Plants</h3>
+              <p className="text-stone-600 leading-relaxed mb-4">
+                Compost transforms soil structure by acting as a biological sponge. Academically recognized benefits include:
+              </p>
+              <ul className="space-y-3">
+                <li className="flex items-start gap-2 text-stone-700">
+                  <span className="text-amber-600 mt-1">•</span>
+                  <span><strong>Increases Cation Exchange Capacity (CEC):</strong> Improves the soil's ability to hold onto essential nutrients (Nitrogen, Phosphorus, Potassium) preventing them from washing away.</span>
+                </li>
+                <li className="flex items-start gap-2 text-stone-700">
+                  <span className="text-amber-600 mt-1">•</span>
+                  <span><strong>Microbial Biomass:</strong> Inoculates soil with beneficial bacteria and mycorrhizal fungi that help plant roots uptake nutrients efficiently.</span>
+                </li>
+                <li className="flex items-start gap-2 text-stone-700">
+                  <span className="text-amber-600 mt-1">•</span>
+                  <span><strong>Moisture Retention:</strong> A 5% increase in organic material quadruples the soil's water-holding capability.</span>
+                </li>
+              </ul>
+            </div>
+
+            <div className="bg-white rounded-3xl p-8 border border-stone-200 shadow-sm">
+              <div className="w-12 h-12 bg-emerald-100 rounded-xl flex items-center justify-center text-emerald-700 mb-6">
+                <TestTube className="w-6 h-6" />
+              </div>
+              <h3 className="text-xl font-bold text-stone-900 mb-3">How to Make Compost (C:N Ratio)</h3>
+              <p className="text-stone-600 leading-relaxed mb-4">
+                Proper decomposition is an aerobic biological process requiring the correct Carbon-to-Nitrogen (C:N) ratio, typically targeted at <strong>30:1</strong>.
+              </p>
+              <ul className="space-y-3">
+                <li className="flex items-start gap-2 text-stone-700">
+                  <span className="text-emerald-600 mt-1">1.</span>
+                  <span><strong>Carbon "Browns" (C:N ~50:1):</strong> Dead leaves, cardboard, straw, and woodchips. These provide structural porosity and energy for microorganisms.</span>
+                </li>
+                <li className="flex items-start gap-2 text-stone-700">
+                  <span className="text-emerald-600 mt-1">2.</span>
+                  <span><strong>Nitrogen "Greens" (C:N ~15:1):</strong> Grass clippings, vegetable scraps, and coffee grounds. These provide amino acids for microbial protein synthesis.</span>
+                </li>
+                <li className="flex items-start gap-2 text-stone-700">
+                  <span className="text-emerald-600 mt-1">3.</span>
+                  <span><strong>Aeration & Moisture:</strong> Turn the pile weekly to introduce oxygen. Keep the moisture level around 50-60% (like a wrung-out sponge).</span>
+                </li>
+              </ul>
+            </div>
+
+            <div className="bg-white rounded-3xl p-8 border border-stone-200 shadow-sm md:col-span-2">
+              <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center text-blue-700 mb-6">
+                <Archive className="w-6 h-6" />
+              </div>
+              <h3 className="text-xl font-bold text-stone-900 mb-3">Where & How to Store It</h3>
+              <div className="grid md:grid-cols-3 gap-6 mt-4">
+                <div>
+                  <h4 className="font-bold text-stone-800 mb-2">Open Compost Piles</h4>
+                  <p className="text-sm text-stone-600">Best for large properties. Minimum size of 3x3x3 feet is required to maintain core temperatures (130°F - 150°F) necessary to kill weed seeds and pathogens.</p>
+                </div>
+                <div>
+                  <h4 className="font-bold text-stone-800 mb-2">Enclosed Bins / Tumblers</h4>
+                  <p className="text-sm text-stone-600">Ideal for urban environments. Protects against rodents and speeds up aerobic breakdown by making it easy to rotate/turn the material digitally.</p>
+                </div>
+                <div>
+                  <h4 className="font-bold text-stone-800 mb-2">Vermicomposting (Worms)</h4>
+                  <p className="text-sm text-stone-600">Stored indoors or in shaded basements. Red Wiggler worms process food waste into rich worm castings. Ideal for apartment dwellers.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Visual Composting Guide */}
+          <div className="mt-16">
+            <div className="text-center mb-10">
+              <h3 className="text-2xl font-bold text-stone-900">Visual Guide: Creating Liquid Gold</h3>
+              <p className="mt-3 text-stone-600">Watch the step-by-step transformation from waste to nutrient-rich compost.</p>
+            </div>
+            <div className="max-w-4xl mx-auto aspect-video bg-stone-100 rounded-[2rem] overflow-hidden shadow-2xl border-4 border-white relative transition-all hover:scale-[1.01]">
+              <iframe 
+                className="w-full h-full"
+                src="https://www.youtube.com/embed/hOg2llGNpuE?autoplay=0" 
+                title="Composting Guide" 
+                frameBorder="0" 
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" 
+                allowFullScreen
+                loading="lazy"
+              ></iframe>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Simulated Video Showcase */}
+      <section className="pt-24 pb-12 bg-white">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center mb-10">
+            <h2 className="text-3xl font-bold text-stone-900">Botanica in Action: Plant Identification</h2>
+            <p className="mt-4 text-lg text-stone-600">See how Botanica analyzes real photos to instantly identify exactly what's growing in your garden.</p>
+          </div>
+          <div className="aspect-video w-full bg-stone-100 rounded-3xl overflow-hidden shadow-lg border border-stone-200 relative">
+            <iframe 
+              className="w-full h-full"
+              src="https://www.youtube.com/embed/XOu60D6VGqc?autoplay=0" 
+              title="Botanica AI App Demo" 
+              frameBorder="0" 
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" 
+              allowFullScreen
+              loading="lazy"
+            ></iframe>
+          </div>
+        </div>
+      </section>
+
       {/* FAQ Section */}
-      <section className="py-24 bg-white">
+      <section className="pb-24 pt-12 bg-white">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-12">
             <h2 className="text-3xl font-bold text-stone-900">Frequently Asked Questions</h2>

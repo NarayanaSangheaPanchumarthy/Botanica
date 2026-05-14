@@ -39,7 +39,9 @@ import {
   ShieldCheck,
   ShieldAlert,
   Eye,
-  Search
+  Search,
+  Calculator,
+  Info
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Toaster, toast } from 'sonner';
@@ -50,6 +52,8 @@ import { collection, addDoc, deleteDoc, doc, onSnapshot, query, orderBy, setDoc 
 import { db, auth } from './firebase';
 import LandingPage from './LandingPage';
 import GardenMonitor from './GardenMonitor';
+import PlantJournal from './PlantJournal';
+import MorphologyCalculator from './MorphologyCalculator';
 
 // Types
 interface Task {
@@ -198,6 +202,9 @@ export default function App() {
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [showMaps, setShowMaps] = useState(false);
   const [showMonitor, setShowMonitor] = useState(false);
+  const [showPlantJournal, setShowPlantJournal] = useState(false);
+  const [showMorphologyCalculator, setShowMorphologyCalculator] = useState(false);
+  const [showAboutUs, setShowAboutUs] = useState(false);
   const [aiModel, setAiModel] = useState<string>('gemini-3-flash-preview');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -463,7 +470,7 @@ export default function App() {
               }
             ],
             config: {
-              systemInstruction: "You are Botanica, an elite, world-class AI Master Horticulturist and Botanist. Provide highly accurate, scientifically backed, and advanced gardening diagnostics. Always prioritize organic, sustainable, and evidence-based methods. When using real-time search, synthesize the latest data into a comprehensive, expert-level response.",
+              systemInstruction: "You are Botanica, an elite, world-class AI Master Horticulturist and Botanist. ONLY answer questions or provide information related to plants, gardening, diagnosing plant diseases, real-time local gardening recommendations, plant morphology, photo analysis of plants, composting (including how to make it and its usefulness), and Botanica's tools. DO NOT answer any questions or provide information outside of this scope. If a user asks a general or unrelated question, politely decline and clarify that you are Botanica and only assist with plant and gardening-related topics. Provide highly accurate, scientifically backed, and advanced gardening diagnostics. Always prioritize organic, sustainable, and evidence-based methods. When using real-time search, synthesize the latest data into a comprehensive, expert-level response.",
               temperature: 0.3,
               tools: useRealTimeSearch ? [{ googleSearch: {} }] : []
             }
@@ -544,7 +551,7 @@ export default function App() {
           { role: 'user', parts }
         ],
         config: {
-          systemInstruction: "You are Botanica, an elite, world-class AI Master Horticulturist and Botanist. Provide highly accurate, scientifically backed, and advanced gardening advice. Always prioritize organic, sustainable, and evidence-based methods. When using real-time search, synthesize the latest data into a comprehensive, expert-level response.",
+          systemInstruction: "You are Botanica, an elite, world-class AI Master Horticulturist and Botanist. ONLY answer questions or provide information related to plants, gardening, diagnosing plant diseases, real-time local gardening recommendations, plant morphology, photo analysis of plants, composting (including how to make it and its usefulness), and Botanica's tools. DO NOT answer any questions or provide information outside of this scope. If a user asks a general or unrelated question, politely decline and clarify that you are Botanica and only assist with plant and gardening-related topics. Provide highly accurate, scientifically backed, and advanced gardening advice. Always prioritize organic, sustainable, and evidence-based methods. When using real-time search, synthesize the latest data into a comprehensive, expert-level response.",
           temperature: 0.3,
           tools: useRealTimeSearch ? [{ googleSearch: {} }] : []
         }
@@ -614,6 +621,8 @@ export default function App() {
           onOpenScanReport={() => { setIsChatOpen(true); setPendingScan(true); }}
           onOpenMaps={() => setShowMaps(true)}
           onOpenMonitor={() => setShowMonitor(true)}
+          onOpenPlantJournal={() => setShowPlantJournal(true)}
+          onOpenMorphologyCalculator={() => setShowMorphologyCalculator(true)}
           aiModel={aiModel}
           onAiModelChange={setAiModel}
           detailLevel={reportDetailLevel}
@@ -659,6 +668,10 @@ export default function App() {
               <button onClick={() => setShowCareSchedule(true)} className="flex items-center gap-2 text-sm font-medium text-green-800 bg-green-100 hover:bg-white px-3 py-2 rounded-full transition-colors shadow-sm">
                 <Calendar className="w-4 h-4 text-green-600" />
                 <span className="hidden sm:inline">Care Schedule</span>
+              </button>
+              <button onClick={() => setShowMorphologyCalculator(true)} className="flex items-center gap-2 text-sm font-medium text-green-800 bg-green-100 hover:bg-white px-3 py-2 rounded-full transition-colors shadow-sm">
+                <Calculator className="w-4 h-4 text-green-600" />
+                <span className="hidden sm:inline">Morphology</span>
               </button>
               <button onClick={() => setShowMenu(true)} className="p-2 text-green-100 hover:bg-green-700 rounded-full transition-colors">
                 <Menu className="w-6 h-6" />
@@ -735,21 +748,21 @@ export default function App() {
                         </div>
                       </div>
                     )}
-                    {msg.isScanResult && !msg.feedback && (
+                    {msg.role === 'assistant' && !msg.feedback && (
                       <div className="mt-4 pt-4 border-t border-stone-100 flex items-center gap-4">
-                        <span className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">Was this accurate?</span>
+                        <span className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">Was this helpful?</span>
                         <div className="flex gap-2">
                           <button 
                             onClick={() => handleFeedback(i, 'correct')}
                             className="p-1.5 hover:bg-green-50 rounded-lg text-stone-400 hover:text-green-600 transition-colors"
-                            title="Correct"
+                            title="Helpful"
                           >
                             <ThumbsUp className="w-4 h-4" />
                           </button>
                           <button 
                             onClick={() => handleFeedback(i, 'incorrect')}
                             className="p-1.5 hover:bg-red-50 rounded-lg text-stone-400 hover:text-red-600 transition-colors"
-                            title="Incorrect"
+                            title="Not Helpful"
                           >
                             <ThumbsDown className="w-4 h-4" />
                           </button>
@@ -759,9 +772,9 @@ export default function App() {
                     {msg.feedback && (
                       <div className="mt-2 text-[10px] font-bold uppercase tracking-widest flex items-center gap-1">
                         {msg.feedback === 'correct' ? (
-                          <span className="text-green-600 flex items-center gap-1"><ThumbsUp className="w-3 h-3" /> Feedback: Accurate</span>
+                          <span className="text-green-600 flex items-center gap-1"><ThumbsUp className="w-3 h-3" /> Feedback: Helpful</span>
                         ) : (
-                          <span className="text-red-600 flex items-center gap-1"><ThumbsDown className="w-3 h-3" /> Feedback: Inaccurate</span>
+                          <span className="text-red-600 flex items-center gap-1"><ThumbsDown className="w-3 h-3" /> Feedback: Not Helpful</span>
                         )}
                       </div>
                     )}
@@ -789,8 +802,11 @@ export default function App() {
                 )}
                 <form onSubmit={handleSubmit} className="flex gap-2 items-end">
                   <input type="file" accept="image/*" className="hidden" ref={fileInputRef} onChange={handleImageSelect} />
-                  <button type="button" onClick={() => fileInputRef.current?.click()} className="p-3 text-stone-500 hover:text-green-600 hover:bg-green-50 rounded-xl transition-colors shrink-0">
+                  <button type="button" onClick={() => fileInputRef.current?.click()} className="p-3 text-stone-500 hover:text-green-600 hover:bg-green-50 rounded-xl transition-colors shrink-0" title="Upload Image">
                     <ImageIcon className="w-6 h-6" />
+                  </button>
+                  <button type="button" onClick={() => setShowMorphologyCalculator(true)} className="p-3 text-stone-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-xl transition-colors shrink-0" title="Morphology Calculator">
+                    <Calculator className="w-6 h-6" />
                   </button>
                   <div className="flex-1 relative">
                     <textarea
@@ -965,6 +981,21 @@ export default function App() {
                     <Eye className="w-5 h-5 text-blue-500 mb-2" />
                     <p className="text-xs font-bold text-stone-800">AI Garden Monitor</p>
                     <p className="text-[10px] text-stone-500">Live surveillance & object counting</p>
+                  </button>
+                  <button onClick={() => { setShowMenu(false); setShowPlantJournal(true); }} className="p-4 bg-stone-50 rounded-2xl border border-stone-100 hover:bg-white hover:border-green-200 transition-all text-left col-span-2">
+                    <Leaf className="w-5 h-5 text-green-500 mb-2" />
+                    <p className="text-xs font-bold text-stone-800">Plant Journal</p>
+                    <p className="text-[10px] text-stone-500">Track your plants over time</p>
+                  </button>
+                  <button onClick={() => { setShowMenu(false); setShowMorphologyCalculator(true); }} className="p-4 bg-stone-50 rounded-2xl border border-stone-100 hover:bg-white hover:border-emerald-200 transition-all text-left col-span-2">
+                    <Calculator className="w-5 h-5 text-emerald-500 mb-2" />
+                    <p className="text-xs font-bold text-stone-800">Morphology Calculator</p>
+                    <p className="text-[10px] text-stone-500">Log measurements & classify species</p>
+                  </button>
+                  <button onClick={() => { setShowMenu(false); setShowAboutUs(true); }} className="p-4 bg-stone-50 rounded-2xl border border-stone-100 hover:bg-white hover:border-green-200 transition-all text-left col-span-2">
+                    <Info className="w-5 h-5 text-green-500 mb-2" />
+                    <p className="text-xs font-bold text-stone-800">About Us</p>
+                    <p className="text-[10px] text-stone-500">Learn more about Botanica</p>
                   </button>
                   <button onClick={() => { setShowMenu(false); setShowDiseaseGuide(true); }} className="p-4 bg-stone-50 rounded-2xl border border-stone-100 hover:bg-white hover:border-green-200 transition-all text-left">
                     <ShieldAlert className="w-5 h-5 text-red-500 mb-2" />
@@ -1284,6 +1315,45 @@ export default function App() {
       </AnimatePresence>
 
       <AnimatePresence>
+        {showAboutUs && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden flex flex-col"
+            >
+              <div className="p-6 border-b border-stone-100 flex justify-between items-center bg-green-50">
+                <h2 className="text-xl font-bold text-green-800 flex items-center gap-2">
+                  <Info className="w-6 h-6" />
+                  About Botanica
+                </h2>
+                <button onClick={() => setShowAboutUs(false)} className="p-2 hover:bg-green-100 rounded-full text-green-800 transition-colors">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="p-6 space-y-4">
+                <p className="text-sm text-stone-700 leading-relaxed">
+                  <strong>Botanica</strong> is your intelligent companion for all things green. Built to help you nurture your plants, diagnose health issues, and learn about the diverse world of botany.
+                </p>
+                <p className="text-sm text-stone-700 leading-relaxed">
+                  This application was developed by <strong>Narayana sanghea panchumarthy</strong>. Botanica was crafted with passion for plant enthusiasts to provide a comprehensive, AI-powered toolset for successful plant care and gardening.
+                </p>
+              </div>
+              <div className="p-6 border-t border-stone-100 bg-stone-50">
+                <button 
+                  onClick={() => setShowAboutUs(false)}
+                  className="w-full py-3 bg-green-600 hover:bg-green-700 text-white font-bold rounded-xl transition-all"
+                >
+                  Close
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
         {showDiseaseGuide && (
           <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
             <motion.div 
@@ -1394,10 +1464,77 @@ export default function App() {
       </AnimatePresence>
 
       <AnimatePresence>
+        {showAboutUs && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden flex flex-col"
+            >
+              <div className="p-6 border-b border-stone-100 flex justify-between items-center bg-green-50">
+                <h2 className="text-xl font-bold text-green-800 flex items-center gap-2">
+                  <Info className="w-6 h-6" />
+                  About Botanica
+                </h2>
+                <button onClick={() => setShowAboutUs(false)} className="p-2 hover:bg-green-100 rounded-full text-green-800 transition-colors">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="p-6 space-y-4">
+                <p className="text-sm text-stone-700 leading-relaxed">
+                  <strong>Botanica</strong> is your intelligent companion for all things green. Built to help you nurture your plants, diagnose health issues, and learn about the diverse world of botany.
+                </p>
+                <p className="text-sm text-stone-700 leading-relaxed">
+                  This application was developed by <strong>Narayana sanghea panchumarthy</strong>. Botanica was crafted with passion for plant enthusiasts to provide a comprehensive, AI-powered toolset for successful plant care and gardening.
+                </p>
+              </div>
+              <div className="p-6 border-t border-stone-100 bg-stone-50">
+                <button 
+                  onClick={() => setShowAboutUs(false)}
+                  className="w-full py-3 bg-green-600 hover:bg-green-700 text-white font-bold rounded-xl transition-all"
+                >
+                  Close
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
         {showMonitor && (
           <GardenMonitor 
             onClose={() => setShowMonitor(false)} 
             aiModel={aiModel}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showPlantJournal && (
+          <PlantJournal onClose={() => setShowPlantJournal(false)} />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showMorphologyCalculator && (
+          <MorphologyCalculator 
+            onClose={() => setShowMorphologyCalculator(false)}
+            onSendToChat={(message, image) => {
+              setInput(message);
+              if (image) {
+                setSelectedImage(image);
+              }
+              // We use a timeout to let the modal close, then submit the form programmatically
+              setTimeout(() => {
+                const form = document.querySelector('form');
+                if (form) {
+                  const event = new Event('submit', { cancelable: true, bubbles: true });
+                  form.dispatchEvent(event);
+                }
+              }, 100);
+            }}
           />
         )}
       </AnimatePresence>

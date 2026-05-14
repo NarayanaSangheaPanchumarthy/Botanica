@@ -38,12 +38,105 @@
         }
       },
       "required": ["id", "text", "completed"]
+    },
+    "Plant": {
+      "title": "Plant",
+      "description": "A plant tracked in the user's journal.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the plant."
+        },
+        "name": {
+          "type": "string",
+          "description": "The name of the plant."
+        },
+        "species": {
+          "type": "string",
+          "description": "The species of the plant."
+        },
+        "createdAt": {
+          "type": "number",
+          "description": "Timestamp of when the plant was added."
+        }
+      },
+      "required": ["id", "name", "createdAt"]
+    },
+    "JournalEntry": {
+      "title": "JournalEntry",
+      "description": "A journal entry for a specific plant.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the entry."
+        },
+        "plantId": {
+          "type": "string",
+          "description": "The ID of the plant this entry belongs to."
+        },
+        "note": {
+          "type": "string",
+          "description": "The text note for the entry."
+        },
+        "photoBase64": {
+          "type": "string",
+          "description": "Base64 encoded photo for the entry."
+        },
+        "date": {
+          "type": "string",
+          "format": "date",
+          "description": "The date of the entry in YYYY-MM-DD format."
+        },
+        "createdAt": {
+          "type": "number",
+          "description": "Timestamp of when the entry was created."
+        },
+        "sepalLength": {
+          "type": "number",
+          "description": "Sepal length."
+        },
+        "sepalWidth": {
+          "type": "number",
+          "description": "Sepal width."
+        },
+        "petalLength": {
+          "type": "number",
+          "description": "Petal length."
+        },
+        "petalWidth": {
+          "type": "number",
+          "description": "Petal width."
+        },
+        "leafLength": {
+          "type": "number",
+          "description": "Leaf length."
+        },
+        "leafWidth": {
+          "type": "number",
+          "description": "Leaf width."
+        },
+        "leafThickness": {
+          "type": "number",
+          "description": "Leaf thickness."
+        }
+      },
+      "required": ["id", "plantId", "note", "date", "createdAt"]
     }
   },
   "firestore": {
     "/users/{userId}/tasks/{taskId}": {
       "schema": "Task",
       "description": "User-specific gardening tasks."
+    },
+    "/users/{userId}/plants/{plantId}": {
+      "schema": "Plant",
+      "description": "User's tracked plants."
+    },
+    "/users/{userId}/plants/{plantId}/entries/{entryId}": {
+      "schema": "JournalEntry",
+      "description": "Journal entries for a specific plant."
     }
   }
 }
