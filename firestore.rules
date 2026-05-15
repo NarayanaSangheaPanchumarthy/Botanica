@@ -39,15 +39,19 @@ service cloud.firestore {
     }
 
     function isValidTask(data) {
-      return hasRequiredFields(['text', 'completed']) &&
-             hasOnlyAllowedFields(['id', 'text', 'completed', 'dueDate', 'frequency', 'plantName', 'lastNotified']) &&
+      return hasRequiredFields(['text', 'completed', 'createdAt']) &&
+             hasOnlyAllowedFields(['id', 'text', 'completed', 'dueDate', 'dueTime', 'plantName', 'category', 'frequency', 'notificationsEnabled', 'reminderMinutes', 'createdAt']) &&
              (!('id' in data) || (data.id is string && data.id.size() > 0 && data.id.size() < 100)) &&
              data.text is string && data.text.size() > 0 && data.text.size() < 200 &&
              data.completed is bool &&
              (!('dueDate' in data) || (data.dueDate is string && data.dueDate.matches('^\\d{4}-\\d{2}-\\d{2}$'))) &&
+             (!('dueTime' in data) || (data.dueTime is string && data.dueTime.matches('^\\d{2}:\\d{2}$'))) &&
              (!('frequency' in data) || (data.frequency in ['none', 'daily', 'weekly', 'biweekly', 'monthly'])) &&
              (!('plantName' in data) || (data.plantName is string && data.plantName.size() < 100)) &&
-             (!('lastNotified' in data) || (data.lastNotified is string && data.lastNotified.matches('^\\d{4}-\\d{2}-\\d{2}$')));
+             (!('category' in data) || (data.category is string && data.category.size() < 100)) &&
+             (!('notificationsEnabled' in data) || (data.notificationsEnabled is bool)) &&
+             (!('reminderMinutes' in data) || (data.reminderMinutes is number)) &&
+             data.createdAt is number;
     }
 
     function isValidPlant(data) {
@@ -104,6 +108,11 @@ service cloud.firestore {
           allow delete: if isOwner(userId);
         }
       }
+    }
+
+    // Allow connection test
+    match /test/{docId} {
+      allow read: if true;
     }
     
     // Default deny

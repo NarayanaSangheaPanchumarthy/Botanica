@@ -93,35 +93,43 @@ export default function LandingPage({
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   const handleShare = async (platform: string) => {
-    const url = window.location.href;
+    const url = window.location.origin + window.location.pathname;
     const text = "Check out Botanica, the AI-powered master gardener! 🌱";
     
-    switch (platform) {
-      case 'twitter':
-        window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`, '_blank');
-        break;
-      case 'facebook':
-        window.open(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}`, '_blank');
-        break;
-      case 'linkedin':
-        window.open(`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(url)}`, '_blank');
-        break;
-      case 'native':
-        if (navigator.share) {
-          navigator.share({
+    const shareUrls: Record<string, string> = {
+      twitter: `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`,
+      facebook: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}`,
+      linkedin: `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(url)}`
+    };
+
+    if (platform in shareUrls) {
+      const a = document.createElement('a');
+      a.href = shareUrls[platform];
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      a.click();
+      return;
+    }
+
+    if (platform === 'native') {
+      if (navigator.share) {
+        try {
+          await navigator.share({
             title: 'Botanica AI',
             text: text,
             url: url,
-          }).catch(console.error);
-        } else {
-          try {
-            await navigator.clipboard.writeText(url);
-            alert('Link copied to clipboard!');
-          } catch (err) {
-            console.error('Failed to copy link', err);
-          }
+          });
+        } catch (err) {
+          console.error('Error sharing:', err);
         }
-        break;
+      } else {
+        try {
+          await navigator.clipboard.writeText(url);
+          alert('Link copied to clipboard!');
+        } catch (err) {
+          console.error('Failed to copy link', err);
+        }
+      }
     }
   };
 
@@ -668,18 +676,30 @@ export default function LandingPage({
           <span className="text-xl font-semibold text-white tracking-tight">Botanica</span>
         </div>
         <div className="flex justify-center items-center gap-6 mb-8">
-          <button onClick={() => handleShare('twitter')} className="hover:text-white transition-colors" title="Share on Twitter">
+          <button onClick={() => handleShare('twitter')} className="hover:text-white transition-colors p-2" title="Share on Twitter">
             <Twitter className="w-5 h-5" />
           </button>
-          <button onClick={() => handleShare('facebook')} className="hover:text-white transition-colors" title="Share on Facebook">
+          <button onClick={() => handleShare('facebook')} className="hover:text-white transition-colors p-2" title="Share on Facebook">
             <Facebook className="w-5 h-5" />
           </button>
-          <button onClick={() => handleShare('linkedin')} className="hover:text-white transition-colors" title="Share on LinkedIn">
+          <button onClick={() => handleShare('linkedin')} className="hover:text-white transition-colors p-2" title="Share on LinkedIn">
             <Linkedin className="w-5 h-5" />
           </button>
-          <button onClick={() => handleShare('native')} className="hover:text-white transition-colors" title="Copy Link / Share">
+          <button onClick={() => handleShare('native')} className="hover:text-white transition-colors p-2" title="Copy Link / Share">
             <Link className="w-5 h-5" />
           </button>
+        </div>
+        <div className="mb-12">
+          <a 
+            href={window.location.origin} 
+            target="_blank" 
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 px-6 py-3 bg-green-700 hover:bg-green-600 text-white rounded-full text-sm font-bold transition-all shadow-lg shadow-green-900/20 active:scale-[0.98]"
+          >
+            Launch Full Experience
+            <ArrowRight className="w-4 h-4" />
+          </a>
+          <p className="mt-3 text-[10px] text-stone-500 uppercase tracking-widest">Open in a dedicated browser tab</p>
         </div>
         <p>© {new Date().getFullYear()} Botanica AI. All rights reserved.</p>
       </footer>

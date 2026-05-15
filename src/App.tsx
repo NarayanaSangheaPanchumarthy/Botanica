@@ -49,7 +49,8 @@ import Markdown from 'react-markdown';
 import { GoogleGenAI } from "@google/genai";
 import { onAuthStateChanged, User } from 'firebase/auth';
 import { collection, addDoc, deleteDoc, doc, onSnapshot, query, orderBy, setDoc } from 'firebase/firestore';
-import { db, auth } from './firebase';
+import { db, auth, OperationType, handleFirestoreError } from './firebase';
+
 import LandingPage from './LandingPage';
 import GardenMonitor from './GardenMonitor';
 import PlantJournal from './PlantJournal';
@@ -269,7 +270,19 @@ export default function App() {
       });
     } catch (error) {
       console.error("Maps Error:", error);
-      toast.error("Failed to fetch local garden info");
+      let errorMessage = "Failed to fetch local garden info";
+      if (error instanceof Error) {
+        if (error.message.includes("API key not valid") || error.message.includes("API_KEY_INVALID")) {
+          errorMessage = "Invalid Gemini API key. Please check your key in Settings > Secrets.";
+        } else if (error.message.includes("PERMISSION_DENIED")) {
+          errorMessage = "Permission denied. Please check your API key in Settings > Secrets.";
+        } else {
+          errorMessage = error.message;
+        }
+      } else if (typeof error === "string") {
+        errorMessage = error;
+      }
+      toast.error(errorMessage);
     } finally {
       setIsMapsLoading(false);
     }
@@ -278,9 +291,12 @@ export default function App() {
   useEffect(() => {
     if (user) {
       const q = query(collection(db, 'users', user.uid, 'tasks'), orderBy('createdAt', 'desc'));
+      const path = `users/${user.uid}/tasks`;
       const unsubscribe = onSnapshot(q, (snapshot) => {
         const t = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Task));
         setTasks(t);
+      }, (error) => {
+        handleFirestoreError(error, OperationType.LIST, path);
       });
       return () => unsubscribe();
     }
@@ -363,7 +379,11 @@ export default function App() {
     };
 
     if (user) {
-      await addDoc(collection(db, 'users', user.uid, 'tasks'), taskData);
+      try {
+        await addDoc(collection(db, 'users', user.uid, 'tasks'), taskData);
+      } catch (error) {
+        handleFirestoreError(error, OperationType.CREATE, `users/${user.uid}/tasks`);
+      }
     } else {
       const id = Math.random().toString(36).substr(2, 9);
       setTasks(prev => [{ id, ...taskData } as Task, ...prev]);
@@ -384,7 +404,11 @@ export default function App() {
 
     const updatedTask = { ...task, completed: !task.completed };
     if (user) {
-      await setDoc(doc(db, 'users', user.uid, 'tasks', id), updatedTask);
+      try {
+        await setDoc(doc(db, 'users', user.uid, 'tasks', id), updatedTask);
+      } catch (error) {
+        handleFirestoreError(error, OperationType.UPDATE, `users/${user.uid}/tasks/${id}`);
+      }
     } else {
       setTasks(prev => prev.map(t => t.id === id ? updatedTask : t));
     }
@@ -392,7 +416,11 @@ export default function App() {
 
   const deleteTask = async (id: string) => {
     if (user) {
-      await deleteDoc(doc(db, 'users', user.uid, 'tasks', id));
+      try {
+        await deleteDoc(doc(db, 'users', user.uid, 'tasks', id));
+      } catch (error) {
+        handleFirestoreError(error, OperationType.DELETE, `users/${user.uid}/tasks/${id}`);
+      }
     } else {
       setTasks(prev => prev.filter(t => t.id !== id));
     }
@@ -403,7 +431,11 @@ export default function App() {
     if (!editingTask || !editingTask.text.trim()) return;
 
     if (user) {
-      await setDoc(doc(db, 'users', user.uid, 'tasks', editingTask.id), editingTask);
+      try {
+        await setDoc(doc(db, 'users', user.uid, 'tasks', editingTask.id), editingTask);
+      } catch (error) {
+        handleFirestoreError(error, OperationType.UPDATE, `users/${user.uid}/tasks/${editingTask.id}`);
+      }
     } else {
       setTasks(prev => prev.map(t => t.id === editingTask.id ? editingTask : t));
     }
@@ -564,7 +596,19 @@ export default function App() {
       }]);
       setIsLoading(false);
     } catch (error) {
-      toast.error("Failed to get AI response");
+      let errorMessage = "Failed to get AI response";
+      if (error instanceof Error) {
+        if (error.message.includes("API key not valid") || error.message.includes("API_KEY_INVALID")) {
+          errorMessage = "Invalid Gemini API key. Please check your key in Settings > Secrets.";
+        } else if (error.message.includes("PERMISSION_DENIED")) {
+          errorMessage = "Permission denied. Please check your API key in Settings > Secrets.";
+        } else {
+          errorMessage = error.message;
+        }
+      } else if (typeof error === "string") {
+        errorMessage = error;
+      }
+      toast.error(errorMessage);
       setIsLoading(false);
     }
   };
@@ -731,11 +775,13 @@ export default function App() {
                           </p>
                         </div>
                         <div className="flex flex-wrap gap-2">
-                          {msg.groundingMetadata.groundingChunks.map((chunk: any, idx: number) => (
-                            chunk.web && (
+                          {msg.groundingMetadata.groundingChunks.map((chunk: any, idx: number) => {
+                            if (!chunk.web || !chunk.web.uri) return null;
+                            const uri = chunk.web.uri.startsWith('http') ? chunk.web.uri : `https://${chunk.web.uri}`;
+                            return (
                               <a 
                                 key={idx} 
-                                href={chunk.web.uri} 
+                                href={uri} 
                                 target="_blank" 
                                 rel="noopener noreferrer"
                                 className="text-[10px] bg-white hover:bg-blue-50 text-stone-600 hover:text-blue-700 px-2.5 py-1.5 rounded-lg border border-stone-200 hover:border-blue-200 transition-all shadow-sm flex items-center gap-1.5 max-w-[250px] group"
@@ -743,8 +789,8 @@ export default function App() {
                                 <Link className="w-3 h-3 opacity-50 group-hover:opacity-100" />
                                 <span className="truncate font-medium">{chunk.web.title || 'Source'}</span>
                               </a>
-                            )
-                          ))}
+                            );
+                          })}
                         </div>
                       </div>
                     )}
@@ -1267,15 +1313,17 @@ export default function App() {
                         <h3 className="text-xs font-bold text-stone-400 uppercase tracking-widest flex items-center gap-2">
                           <MapPin className="w-3 h-3" /> Verified Locations
                         </h3>
-                        <div className="grid gap-3">
-                          {mapsResults.chunks.map((chunk: any, idx: number) => (
-                            chunk.maps && (
+                        <div className="flex flex-col gap-2">
+                          {mapsResults.chunks.map((chunk: any, idx: number) => {
+                            if (!chunk.maps || !chunk.maps.uri) return null;
+                            const uri = chunk.maps.uri.startsWith('http') ? chunk.maps.uri : `https://${chunk.maps.uri}`;
+                            return (
                               <a 
                                 key={idx} 
-                                href={chunk.maps.uri} 
+                                href={uri} 
                                 target="_blank" 
                                 rel="noopener noreferrer"
-                                className="flex items-center justify-between p-4 bg-stone-50 hover:bg-green-50 rounded-2xl border border-stone-100 transition-all group"
+                                className="flex items-center justify-between p-4 bg-stone-50 hover:bg-green-50 rounded-2xl border border-stone-100 transition-all group w-full"
                               >
                                 <div className="flex items-center gap-3">
                                   <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-green-700 shadow-sm group-hover:scale-110 transition-transform">
@@ -1288,8 +1336,8 @@ export default function App() {
                                 </div>
                                 <ArrowRight className="w-5 h-5 text-stone-300 group-hover:text-green-600 transition-colors" />
                               </a>
-                            )
-                          ))}
+                            );
+                          })}
                         </div>
                       </div>
                     )}
@@ -1464,47 +1512,7 @@ export default function App() {
       </AnimatePresence>
 
       <AnimatePresence>
-        {showAboutUs && (
-          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-white w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden flex flex-col"
-            >
-              <div className="p-6 border-b border-stone-100 flex justify-between items-center bg-green-50">
-                <h2 className="text-xl font-bold text-green-800 flex items-center gap-2">
-                  <Info className="w-6 h-6" />
-                  About Botanica
-                </h2>
-                <button onClick={() => setShowAboutUs(false)} className="p-2 hover:bg-green-100 rounded-full text-green-800 transition-colors">
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-              <div className="p-6 space-y-4">
-                <p className="text-sm text-stone-700 leading-relaxed">
-                  <strong>Botanica</strong> is your intelligent companion for all things green. Built to help you nurture your plants, diagnose health issues, and learn about the diverse world of botany.
-                </p>
-                <p className="text-sm text-stone-700 leading-relaxed">
-                  This application was developed by <strong>Narayana sanghea panchumarthy</strong>. Botanica was crafted with passion for plant enthusiasts to provide a comprehensive, AI-powered toolset for successful plant care and gardening.
-                </p>
-              </div>
-              <div className="p-6 border-t border-stone-100 bg-stone-50">
-                <button 
-                  onClick={() => setShowAboutUs(false)}
-                  className="w-full py-3 bg-green-600 hover:bg-green-700 text-white font-bold rounded-xl transition-all"
-                >
-                  Close
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      <AnimatePresence>
-        {showMonitor && (
-          <GardenMonitor 
+        {showMonitor && (          <GardenMonitor 
             onClose={() => setShowMonitor(false)} 
             aiModel={aiModel}
           />
@@ -1513,7 +1521,7 @@ export default function App() {
 
       <AnimatePresence>
         {showPlantJournal && (
-          <PlantJournal onClose={() => setShowPlantJournal(false)} />
+          <PlantJournal user={user} onClose={() => setShowPlantJournal(false)} />
         )}
       </AnimatePresence>
 

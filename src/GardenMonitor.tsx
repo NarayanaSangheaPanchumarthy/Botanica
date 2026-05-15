@@ -77,7 +77,11 @@ export default function GardenMonitor({ onClose, aiModel }: GardenMonitorProps) 
       }
 
       const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { facingMode: facingMode, width: { ideal: 1920 }, height: { ideal: 1080 } } 
+        video: { 
+          facingMode: facingMode, 
+          width: { ideal: 1280 }, 
+          height: { ideal: 720 } 
+        } 
       });
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
@@ -207,13 +211,19 @@ export default function GardenMonitor({ onClose, aiModel }: GardenMonitorProps) 
     if (isScanning || !videoRef.current) return;
     
     setIsScanning(true);
+    const scanToast = toast.loading("AI garden analysis in progress...");
     try {
       const canvas = document.createElement('canvas');
       const video = videoRef.current;
+      
+      if (video.videoWidth === 0 || video.videoHeight === 0) {
+        throw new Error("Video feed not ready. Please try again in a moment.");
+      }
+
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
       const ctx = canvas.getContext('2d');
-      if (!ctx) return;
+      if (!ctx) throw new Error("Could not initialize camera capture");
       
       // If we're using CSS zoom fallback, we need to capture the zoomed area
       if (!zoomCapabilities && zoom > 1) {
@@ -240,16 +250,20 @@ export default function GardenMonitor({ onClose, aiModel }: GardenMonitorProps) 
       };
 
       const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
+        model: aiModel,
         contents: [
           {
-            inlineData: {
-              mimeType: "image/jpeg",
-              data: base64Image
-            }
-          },
-          {
-            text: "You are a specialized garden monitoring AI. Scan this garden view and count the following objects: plants, crops, fruits, trees, and animals. Also provide a confidence score (0-100) for your detection of each category. Return ONLY a JSON object with these keys: plants, crops, fruits, trees, animals. If none are found, use count 0 and confidence 0."
+            parts: [
+              {
+                inlineData: {
+                  mimeType: "image/jpeg",
+                  data: base64Image
+                }
+              },
+              {
+                text: "You are a specialized garden monitoring AI. Scan this garden view and count the following objects: plants, crops, fruits, trees, and animals. Also provide a confidence score (0-100) for your detection of each category. Return ONLY a JSON object with these keys: plants, crops, fruits, trees, animals. If none are found, use count 0 and confidence 0."
+              }
+            ]
           }
         ],
         config: {
@@ -270,12 +284,26 @@ export default function GardenMonitor({ onClose, aiModel }: GardenMonitorProps) 
 
       const result = JSON.parse(response.text);
       setLastResult({ ...result, timestamp: Date.now() });
+      toast.success("Garden scan complete!", { id: scanToast });
       
       if (result.animals?.count > 0) {
-        toast.warning(`Motion Alert: ${result.animals.count} animal(s) detected with ${result.animals.confidence}% confidence!`);
+        toast.warning(`Motion Alert: ${result.animals.count} animal(s) detected!`, { duration: 5000 });
       }
     } catch (err) {
       console.error("Scan error:", err);
+      let errorMessage = "AI scanning failed. Please check your connection.";
+      if (err instanceof Error) {
+        if (err.message.includes("API key not valid") || err.message.includes("API_KEY_INVALID")) {
+          errorMessage = "Invalid Gemini API key. Please check your key in Settings > Secrets.";
+        } else if (err.message.includes("PERMISSION_DENIED")) {
+          errorMessage = "Permission denied. Please check your API key in Settings > Secrets.";
+        } else {
+          errorMessage = err.message;
+        }
+      } else if (typeof err === "string") {
+        errorMessage = err;
+      }
+      toast.error(errorMessage, { id: scanToast });
     } finally {
       setIsScanning(false);
     }

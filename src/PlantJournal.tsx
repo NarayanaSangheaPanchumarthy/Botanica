@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { collection, addDoc, deleteDoc, doc, onSnapshot, query, orderBy, updateDoc, deleteField } from 'firebase/firestore';
-import { db, auth } from './firebase';
+import { User } from 'firebase/auth';
+import { db, auth, OperationType, handleFirestoreError } from './firebase';
+
 import { X, Plus, Image as ImageIcon, Calendar, Trash2, ChevronLeft, Camera, Leaf, Edit, GitCompare, CheckCircle2, Search, Sparkles, Loader2, TrendingUp } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
@@ -30,10 +32,11 @@ interface JournalEntry {
 }
 
 interface PlantJournalProps {
+  user: User | null;
   onClose: () => void;
 }
 
-export default function PlantJournal({ onClose }: PlantJournalProps) {
+export default function PlantJournal({ user, onClose }: PlantJournalProps) {
   const [plants, setPlants] = useState<Plant[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedPlant, setSelectedPlant] = useState<Plant | null>(null);
@@ -90,55 +93,68 @@ export default function PlantJournal({ onClose }: PlantJournalProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (!auth.currentUser) return;
-    const q = query(collection(db, 'users', auth.currentUser.uid, 'plants'), orderBy('createdAt', 'desc'));
+    if (!user) return;
+    const q = query(collection(db, 'users', user.uid, 'plants'), orderBy('createdAt', 'desc'));
+    const path = `users/${user.uid}/plants`;
     const unsubscribe = onSnapshot(q, (snapshot) => {
       setPlants(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Plant)));
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, path);
     });
     return () => unsubscribe();
-  }, []);
+  }, [user]);
 
   useEffect(() => {
-    if (!auth.currentUser || !selectedPlant) return;
-    const q = query(collection(db, 'users', auth.currentUser.uid, 'plants', selectedPlant.id, 'entries'), orderBy('date', 'desc'), orderBy('createdAt', 'desc'));
+    if (!user || !selectedPlant) return;
+    const path = `users/${user.uid}/plants/${selectedPlant.id}/entries`;
+    const q = query(collection(db, 'users', user.uid, 'plants', selectedPlant.id, 'entries'), orderBy('date', 'desc'), orderBy('createdAt', 'desc'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       setEntries(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as JournalEntry)));
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, path);
     });
     return () => unsubscribe();
-  }, [selectedPlant]);
+  }, [user, selectedPlant]);
 
   useEffect(() => {
-    if (!showCompareView || selectedComparePlants.length === 0 || !auth.currentUser) return;
+    if (!showCompareView || selectedComparePlants.length === 0 || !user) return;
     
     // We fetch entries for all selected compare plants
     const unsubscribes = selectedComparePlants.map(plant => {
       const q = query(
-        collection(db, 'users', auth.currentUser!.uid, 'plants', plant.id, 'entries'),
+        collection(db, 'users', user.uid, 'plants', plant.id, 'entries'),
         orderBy('date', 'desc'),
         orderBy('createdAt', 'desc')
       );
+      const path = `users/${user.uid}/plants/${plant.id}/entries`;
       return onSnapshot(q, (snapshot) => {
         setCompareEntries(prev => ({
           ...prev,
           [plant.id]: snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as JournalEntry))
         }));
+      }, (error) => {
+        handleFirestoreError(error, OperationType.LIST, path);
       });
     });
 
     return () => {
       unsubscribes.forEach(unsub => unsub());
     };
-  }, [showCompareView, selectedComparePlants]);
+  }, [showCompareView, selectedComparePlants, user]);
 
   const handleAddPlant = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!auth.currentUser || !newPlantName.trim()) return;
+    if (!user || !newPlantName.trim()) return;
     
-    await addDoc(collection(db, 'users', auth.currentUser.uid, 'plants'), {
-      name: newPlantName.trim(),
-      species: newPlantSpecies.trim() || null,
-      createdAt: Date.now()
-    });
+    try {
+      await addDoc(collection(db, 'users', user.uid, 'plants'), {
+        name: newPlantName.trim(),
+        species: newPlantSpecies.trim() || null,
+        createdAt: Date.now()
+      });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, `users/${user.uid}/plants`);
+    }
     
     setNewPlantName('');
     setNewPlantSpecies('');
@@ -146,9 +162,13 @@ export default function PlantJournal({ onClose }: PlantJournalProps) {
   };
 
   const handleDeletePlant = async (plantId: string) => {
-    if (!auth.currentUser) return;
+    if (!user) return;
     if (confirm('Are you sure you want to delete this plant and all its journal entries?')) {
-      await deleteDoc(doc(db, 'users', auth.currentUser.uid, 'plants', plantId));
+      try {
+        await deleteDoc(doc(db, 'users', user.uid, 'plants', plantId));
+      } catch (error) {
+        handleFirestoreError(error, OperationType.DELETE, `users/${user.uid}/plants/${plantId}`);
+      }
       if (selectedPlant?.id === plantId) setSelectedPlant(null);
     }
   };
@@ -222,10 +242,11 @@ export default function PlantJournal({ onClose }: PlantJournalProps) {
 
   const handleAddEntry = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!auth.currentUser || !selectedPlant || !newEntryNote.trim() || !newEntryDate) return;
+    if (!user || !selectedPlant || !newEntryNote.trim() || !newEntryDate) return;
 
     if (editingEntry) {
-      const entryRef = doc(db, 'users', auth.currentUser.uid, 'plants', selectedPlant.id, 'entries', editingEntry.id);
+      const path = `users/${user.uid}/plants/${selectedPlant.id}/entries/${editingEntry.id}`;
+      const entryRef = doc(db, path);
       
       const updateData: any = {
         note: newEntryNote.trim(),
@@ -241,8 +262,13 @@ export default function PlantJournal({ onClose }: PlantJournalProps) {
       if (leafWidth !== '') updateData.leafWidth = leafWidth; else updateData.leafWidth = deleteField();
       if (leafThickness !== '') updateData.leafThickness = leafThickness; else updateData.leafThickness = deleteField();
 
-      await updateDoc(entryRef, updateData);
+      try {
+        await updateDoc(entryRef, updateData);
+      } catch (error) {
+        handleFirestoreError(error, OperationType.UPDATE, path);
+      }
     } else {
+      const path = `users/${user.uid}/plants/${selectedPlant.id}/entries`;
       const entryData: any = {
         plantId: selectedPlant.id,
         note: newEntryNote.trim(),
@@ -259,7 +285,11 @@ export default function PlantJournal({ onClose }: PlantJournalProps) {
       if (leafWidth !== '') entryData.leafWidth = leafWidth;
       if (leafThickness !== '') entryData.leafThickness = leafThickness;
 
-      await addDoc(collection(db, 'users', auth.currentUser.uid, 'plants', selectedPlant.id, 'entries'), entryData);
+      try {
+        await addDoc(collection(db, path), entryData);
+      } catch (error) {
+        handleFirestoreError(error, OperationType.CREATE, path);
+      }
     }
     
     handleCancelForm();
@@ -300,9 +330,14 @@ export default function PlantJournal({ onClose }: PlantJournalProps) {
   };
 
   const handleDeleteEntry = async (entryId: string) => {
-    if (!auth.currentUser || !selectedPlant) return;
+    if (!user || !selectedPlant) return;
     if (confirm('Delete this journal entry?')) {
-      await deleteDoc(doc(db, 'users', auth.currentUser.uid, 'plants', selectedPlant.id, 'entries', entryId));
+      const path = `users/${user.uid}/plants/${selectedPlant.id}/entries/${entryId}`;
+      try {
+        await deleteDoc(doc(db, path));
+      } catch (error) {
+        handleFirestoreError(error, OperationType.DELETE, path);
+      }
     }
   };
 

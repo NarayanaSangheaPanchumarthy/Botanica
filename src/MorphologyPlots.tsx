@@ -21,6 +21,7 @@ interface MorphologyPlotsProps {
     petalWidth?: number;
     leafLength?: number;
     leafWidth?: number;
+    leafThickness?: number;
     image?: string | null;
   }
 }
@@ -35,14 +36,15 @@ const COLORS = {
 export default function MorphologyPlots({ onClose, onBack, userData, initialTab }: MorphologyPlotsProps) {
   const [activeTab, setActiveTab] = useState<'scatter'|'bar'|'line'|'radar'|'doughnut'|'bubble'|'histogram'|'analysis'>(initialTab || (userData ? 'analysis' : 'scatter'));
   const [xAxisFeature, setXAxisFeature] = useState<string>('sepalLength');
-  const [yAxisFeature, setYAxisFeature] = useState<string>('petalLength');
+  const [yAxisFeature, setYAxisFeature] = useState<string>(initialTab === 'histogram' ? 'leafThickness' : 'petalLength');
   const [analysisResult, setAnalysisResult] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
 
   const PRESETS = [
     { label: 'Sepal L vs Petal L', x: 'sepalLength', y: 'petalLength' },
     { label: 'Petal L vs Petal W', x: 'petalLength', y: 'petalWidth' },
-    { label: 'Sepal L vs Sepal W', x: 'sepalLength', y: 'sepalWidth' },
+    { label: 'Leaf L vs Leaf W', x: 'leafLength', y: 'leafWidth' },
+    { label: 'Leaf Thickness vs Leaf W', x: 'leafThickness', y: 'leafWidth' },
   ];
 
   const FEATURES = [
@@ -50,6 +52,9 @@ export default function MorphologyPlots({ onClose, onBack, userData, initialTab 
     { id: 'sepalWidth', label: 'Sepal Width', unit: 'cm' },
     { id: 'petalLength', label: 'Petal Length', unit: 'cm' },
     { id: 'petalWidth', label: 'Petal Width', unit: 'cm' },
+    { id: 'leafLength', label: 'Leaf Length', unit: 'cm' },
+    { id: 'leafWidth', label: 'Leaf Width', unit: 'cm' },
+    { id: 'leafThickness', label: 'Leaf Thickness', unit: 'mm' },
   ];
 
   const getFeatureLabel = (id: string) => FEATURES.find(f => f.id === id)?.label || id;
@@ -72,6 +77,7 @@ export default function MorphologyPlots({ onClose, onBack, userData, initialTab 
             if (userData.petalWidth) prompt += `- Petal Width: ${userData.petalWidth} cm\n`;
             if (userData.leafLength) prompt += `- Leaf Length: ${userData.leafLength} cm\n`;
             if (userData.leafWidth) prompt += `- Leaf Width: ${userData.leafWidth} cm\n`;
+            if (userData.leafThickness) prompt += `- Leaf Thickness: ${userData.leafThickness} mm\n`;
             prompt += "\n\nBased on these measurements, what species could this be, and what can you tell me about its health or growth stage?";
           }
           
@@ -171,6 +177,30 @@ export default function MorphologyPlots({ onClose, onBack, userData, initialTab 
       versicolor: meansData[1].petalWidth, 
       virginica: meansData[2].petalWidth,
       user: userData?.petalWidth || 0
+    },
+    { 
+      subject: 'Leaf L', 
+      fullLabel: 'Leaf Length',
+      setosa: (meansData[0] as any).leafLength || 0, 
+      versicolor: (meansData[1] as any).leafLength || 0, 
+      virginica: (meansData[2] as any).leafLength || 0,
+      user: userData?.leafLength || 0
+    },
+    { 
+      subject: 'Leaf W', 
+      fullLabel: 'Leaf Width',
+      setosa: (meansData[0] as any).leafWidth || 0, 
+      versicolor: (meansData[1] as any).leafWidth || 0, 
+      virginica: (meansData[2] as any).leafWidth || 0,
+      user: userData?.leafWidth || 0
+    },
+    { 
+      subject: 'Thickness', 
+      fullLabel: 'Leaf Thickness',
+      setosa: (meansData[0] as any).leafThickness || 0, 
+      versicolor: (meansData[1] as any).leafThickness || 0, 
+      virginica: (meansData[2] as any).leafThickness || 0,
+      user: userData?.leafThickness || 0
     }
   ];
 

@@ -16,11 +16,13 @@ export default function MorphologyCalculator({ onClose, onSendToChat }: Morpholo
   const [petalWidth, setPetalWidth] = useState<number | ''>('');
   const [leafLength, setLeafLength] = useState<number | ''>('');
   const [leafWidth, setLeafWidth] = useState<number | ''>('');
+  const [leafThickness, setLeafThickness] = useState<number | ''>('');
 
   const [uploadedImage, setUploadedImage] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [showPlots, setShowPlots] = useState(false);
-  const [plotTab, setPlotTab] = useState<'scatter'|'analysis'|undefined>(undefined);
+  const [plotTab, setPlotTab] = useState<'scatter'|'analysis'|'histogram'|undefined>(undefined);
   const [showCamera, setShowCamera] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
   
@@ -123,6 +125,7 @@ export default function MorphologyCalculator({ onClose, onSendToChat }: Morpholo
   const handleAIAnalysis = async (photo: string) => {
     if (!photo) return;
     setIsAnalyzing(true);
+    setAnalysisError(null);
     try {
       const dims = await analyzePlantDimensions(photo);
       if (dims.sepalLength) setSepalLength(dims.sepalLength);
@@ -131,8 +134,14 @@ export default function MorphologyCalculator({ onClose, onSendToChat }: Morpholo
       if (dims.petalWidth) setPetalWidth(dims.petalWidth);
       if (dims.leafLength) setLeafLength(dims.leafLength);
       if (dims.leafWidth) setLeafWidth(dims.leafWidth);
-    } catch (error) {
+      if (dims.leafThickness) setLeafThickness(dims.leafThickness);
+    } catch (error: any) {
       console.error("AI Analysis failed:", error);
+      if (error?.message?.includes("API key")) {
+         setAnalysisError("Invalid Gemini API key. Please check your key in Settings > Secrets.");
+      } else {
+         setAnalysisError("AI analysis failed. " + (error?.message || "Please try again."));
+      }
     } finally {
       setIsAnalyzing(false);
     }
@@ -142,7 +151,7 @@ export default function MorphologyCalculator({ onClose, onSendToChat }: Morpholo
     setShowPlots(true);
   };
 
-  const hasAnyInput = sepalLength !== '' || sepalWidth !== '' || petalLength !== '' || petalWidth !== '' || leafLength !== '' || leafWidth !== '' || uploadedImage !== null;
+  const hasAnyInput = sepalLength !== '' || sepalWidth !== '' || petalLength !== '' || petalWidth !== '' || leafLength !== '' || leafWidth !== '' || leafThickness !== '' || uploadedImage !== null;
 
   if (showPlots) {
     const userData = hasAnyInput ? {
@@ -152,6 +161,7 @@ export default function MorphologyCalculator({ onClose, onSendToChat }: Morpholo
       petalWidth: petalWidth ? Number(petalWidth) : undefined,
       leafLength: leafLength ? Number(leafLength) : undefined,
       leafWidth: leafWidth ? Number(leafWidth) : undefined,
+      leafThickness: leafThickness ? Number(leafThickness) : undefined,
       image: uploadedImage
     } : undefined;
 
@@ -177,6 +187,9 @@ export default function MorphologyCalculator({ onClose, onSendToChat }: Morpholo
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <button onClick={() => { setPlotTab('histogram'); setShowPlots(true); }} className="p-2 text-stone-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-full transition-colors" title="Thickness Distribution">
+              <BarChart3 className="w-6 h-6" />
+            </button>
             <button onClick={() => { setPlotTab('scatter'); setShowPlots(true); }} className="p-2 text-stone-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-full transition-colors" title="Scatter Explorer">
               <ScatterIcon className="w-6 h-6" />
             </button>
@@ -194,6 +207,12 @@ export default function MorphologyCalculator({ onClose, onSendToChat }: Morpholo
             <Ruler className="w-5 h-5 shrink-0 mt-0.5 text-blue-500" />
             <p>Input measurements or upload a photo. The AI will analyze the image to estimate sepal and petal dimensions.</p>
           </div>
+
+            {analysisError && (
+              <div className="mb-6 bg-red-50 text-red-700 p-4 rounded-2xl text-sm border border-red-200">
+                ⚠️ {analysisError}
+              </div>
+            )}
 
           <div className="mb-6">
             <input type="file" accept="image/*" className="hidden" ref={fileInputRef} onChange={handleImageSelect} />
@@ -354,6 +373,13 @@ export default function MorphologyCalculator({ onClose, onSendToChat }: Morpholo
                   <div className="relative">
                     <input type="number" step="0.1" value={leafWidth} onChange={(e) => setLeafWidth(e.target.value === '' ? '' : Number(e.target.value))} className="w-full px-4 py-3 pr-8 rounded-xl border border-stone-200 text-sm focus:outline-none focus:border-green-500 focus:ring-1 focus:ring-green-500 transition-shadow bg-stone-50/50" placeholder="e.g. 5.5" />
                     <span className="absolute right-4 top-3.5 text-xs font-medium text-stone-400">cm</span>
+                  </div>
+                </div>
+                <div className="flex flex-col gap-1.5 col-span-2">
+                  <label className="text-[10px] font-bold text-stone-500 uppercase tracking-wider">Leaf Thickness</label>
+                  <div className="relative">
+                    <input type="number" step="0.01" value={leafThickness} onChange={(e) => setLeafThickness(e.target.value === '' ? '' : Number(e.target.value))} className="w-full px-4 py-3 pr-8 rounded-xl border border-stone-200 text-sm focus:outline-none focus:border-green-500 focus:ring-1 focus:ring-green-500 transition-shadow bg-stone-50/50" placeholder="e.g. 0.5" />
+                    <span className="absolute right-4 top-3.5 text-xs font-medium text-stone-400">mm</span>
                   </div>
                 </div>
               </div>
