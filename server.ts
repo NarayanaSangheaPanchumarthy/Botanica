@@ -16,10 +16,28 @@ async function startServer() {
       }
 
       // Check for either GEMINI_API_KEY, GEMINI_API_KEY1, or Botanica
-      const apiKey = process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY1 || process.env.Botanica;
-      if (!apiKey) {
-        return res.status(500).json({ error: "API key is not configured on the server" });
+      // Try to find a valid API key. The user accidentally swapped the Secret name and value.
+      let apiKey = process.env.GEMINI_API_KEY;
+      
+      // If the user pasted the dummy string, ignore it.
+      if (apiKey === "MY_GEMINI_API_KEY" || !apiKey) {
+        apiKey = process.env.GEMINI_API_KEY1;
       }
+
+      // Check if they accidentally put the API key as the Secret Name instead!
+      if (!apiKey || !apiKey.startsWith('AIza')) {
+        const accidentalKey = Object.keys(process.env).find(k => k.startsWith('AIza'));
+        if (accidentalKey) {
+          apiKey = accidentalKey;
+        }
+      }
+
+      if (!apiKey) {
+        return res.status(500).json({ error: "API key is not configured on the server." });
+      }
+
+
+
 
       const ai = new GoogleGenAI({ apiKey });
       const model = "gemini-2.5-flash";
